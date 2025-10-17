@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InputMediaPhoto
 from pyrogram.enums import ParseMode
 import aiohttp
 
@@ -29,6 +29,7 @@ async def bookmyshow_poster(client: Client, message: Message):
     waiting = await message.reply_text("Fetching HQ posters... ⏳")
 
     try:
+        # Fetch data from worker
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 data = await resp.json()
@@ -44,21 +45,21 @@ async def bookmyshow_poster(client: Client, message: Message):
 
         await waiting.delete()
 
-        # Send each poster as photo with clickable caption (preview shown automatically)
-        for i, url in enumerate(posters, start=1):
-            try:
-                await message.reply_photo(
-                    photo=url,
-                    caption=f"<b>{i}️⃣ Poster</b>\n🎉 <a href='{url}'>Click Here</a>",
-                    parse_mode=ParseMode.HTML
-                )
-            except Exception:
-                pass
+        # Send posters as media group (album)
+        media = []
+        for i, url in enumerate(posters[:4], start=1):
+            media.append(InputMediaPhoto(
+                media=url,
+                caption=f"<b>{i}️⃣ Poster</b>\n👉 <a href='{url}'>Click Here</a>",
+                parse_mode=ParseMode.HTML
+            ))
+        if media:
+            await client.send_media_group(chat_id=message.chat.id, media=media)
 
-        # Send final summary message with clickable links and web preview
+        # Send final summary message with clickable links & web preview
         summary_text = f"🎬 <b>BookMyShow Posters</b>\n🔗 <a href='{movie_url}'>Source Link</a>\n\n"
-        for i, url in enumerate(posters, start=1):
-            summary_text += f"{i}️⃣ 🎉 <a href='{url}'>{url}</a>\n"
+        for i, url in enumerate(posters[:4], start=1):
+            summary_text += f"{i}️⃣ 👉 <a href='{url}'>{url}</a>\n"
         summary_text += "\n⚡ Powered By @AddaFiles"
 
         await message.reply_text(
