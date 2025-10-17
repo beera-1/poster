@@ -26,42 +26,47 @@ async def bookmyshow_poster(client: Client, message: Message):
         await message.reply_text("Please provide a valid BookMyShow movie URL.")
         return
 
+    waiting = await message.reply_text("Fetching HQ posters... ⏳")
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 data = await resp.json()
 
-        posters = data.get("posters", [])
-        if not posters:
-            await message.reply_text("😭 No HQ posters found.")
+        if not data.get("ok"):
+            await waiting.edit_text("❌ Invalid response from worker.")
             return
 
-        # Format message with multiple clickable links
-        poster_links = ""
-        for i, url in enumerate(posters, start=1):
-            poster_links += f"{i}. <a href=\"{url}\">Click Here</a>\n"
+        posters = data.get("posters", [])
+        if not posters:
+            await waiting.edit_text("😭 No HQ posters found.")
+            return
 
-        text = (
-            f"🎬 <b>BookMyShow Posters</b>\n"
-            f"🔗 <a href=\"{movie_url}\">Source Link</a>\n\n"
-            f"{poster_links}\n"
-            f"⚡ Powered By @AddaFiles"
+        await waiting.delete()
+
+        # Send each poster as separate photo with caption "Click Here"
+        for i, url in enumerate(posters, start=1):
+            try:
+                await message.reply_photo(
+                    photo=url,
+                    caption=f"<b>{i}️⃣ Poster</b>\n👉 <a href='{url}'>Click Here</a>",
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True
+                )
+            except Exception:
+                pass
+
+        # Send final summary message with clickable links
+        summary_text = f"🎬 <b>BookMyShow Posters</b>\n🔗 <a href='{movie_url}'>Source Link</a>\n\n"
+        for i, url in enumerate(posters, start=1):
+            summary_text += f"{i}️⃣ 👉 <a href='{url}'>Click Here</a>\n"
+        summary_text += "\n⚡ Powered By @AddaFiles"
+
+        await message.reply_text(
+            summary_text,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
         )
 
-        # Send first image with caption
-        try:
-            await message.reply_photo(
-                photo=posters[0],
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=False
-            )
-        except Exception:
-            await message.reply_text(
-                text=text,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=False
-            )
-
     except Exception as e:
-        await message.reply_text(f"⚠️ Error fetching posters: {e}")
+        await waiting.edit_text(f"⚠️ Error fetching posters: {e}")
