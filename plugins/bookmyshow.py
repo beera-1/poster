@@ -15,46 +15,48 @@ async def bms_handler(client, message):
         return
 
     url = message.command[1]
-    await message.reply_text("Fetching HQ posters... ⏳")
+    waiting = await message.reply_text("Fetching HQ posters... ⏳")
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(WORKER_API + url) as resp:
                 if resp.status != 200:
-                    await message.reply_text(f"Worker returned status {resp.status}")
+                    await waiting.edit_text(f"❌ Worker returned status {resp.status}")
                     return
                 data = await resp.json()
 
         if not data.get("ok"):
-            await message.reply_text("❌ Invalid response from worker.")
+            await waiting.edit_text("❌ Invalid response from worker.")
             return
 
         posters = data.get("posters", [])
         if not posters:
-            await message.reply_text("😭 No HQ images found.")
+            await waiting.edit_text("😭 No HQ images found.")
             return
 
-        # Send top 4 poster images (if available)
-        for poster in posters[:4]:
-            try:
-                await message.reply_photo(poster)
-            except Exception:
-                pass  # skip broken URLs safely
+        await waiting.delete()
 
-        # Send JSON summary
-        result_json = json.dumps(
-            {
-                "ok": True,
-                "source": url,
-                "count": len(posters[:4]),
-                "posters": posters[:4]
-            },
-            indent=2
-        )
-        await message.reply_text(f"<code>{result_json}</code>", parse_mode="html")
+        text_lines = [f"🎬 <b>BookMyShow Posters</b>\n<a href='{url}'>🎟 Click Here (Source)</a>\n"]
+        
+        # Send each image with clickable “Click Here” link
+        for i, poster in enumerate(posters[:4], start=1):
+            try:
+                await message.reply_photo(
+                    photo=poster,
+                    caption=f"<b>{i}️⃣ Poster</b>\n👉 <a href='{poster}'>Click Here</a>",
+                    parse_mode="html",
+                    disable_web_page_preview=True
+                )
+                text_lines.append(f"{i}️⃣ 👉 <a href='{poster}'>Click Here</a>")
+            except Exception:
+                pass
+
+        # Send final summary message
+        text_output = "\n".join(text_lines)
+        await message.reply_text(text_output, parse_mode="html", disable_web_page_preview=True)
 
     except Exception as e:
-        await message.reply_text(f"⚠️ Error: {e}")
+        await waiting.edit_text(f"⚠️ Error: {e}")
 
 if __name__ == "__main__":
     app.run()
