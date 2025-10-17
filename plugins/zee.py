@@ -3,10 +3,10 @@ from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 import aiohttp
 
-WORKER_URL = "https://zee.botzs.workers.dev/"
+WORKER_URL = "https://book.botzs.workers.dev/"
 
-@Client.on_message(filters.command("zee5"))
-async def zee5_poster(client: Client, message: Message):
+@Client.on_message(filters.command(["bms", "bookmyshow"]))
+async def bookmyshow_poster(client: Client, message: Message):
     # ------------------ Authorization Check ------------------
     OFFICIAL_GROUPS = ["-1002311378229"]  # your official group ID
     if str(message.chat.id) not in OFFICIAL_GROUPS:
@@ -16,14 +16,14 @@ async def zee5_poster(client: Client, message: Message):
 
     if len(message.command) < 2:
         await message.reply_text(
-            "Send a ZEE5 movie URL like:\n/zee5 https://www.zee5.com/movies/details/krack/0-0-1z51604"
+            "Send a BookMyShow URL like:\n/bms https://in.bookmyshow.com/movies/details/<slug>/ET00000000"
         )
         return
 
     movie_url = message.command[1]
 
-    if "zee5.com" not in movie_url:
-        await message.reply_text("Please provide a valid ZEE5 movie URL.")
+    if "bookmyshow.com" not in movie_url:
+        await message.reply_text("Please provide a valid BookMyShow movie URL.")
         return
 
     try:
@@ -31,30 +31,37 @@ async def zee5_poster(client: Client, message: Message):
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 data = await resp.json()
 
-        movie_name = data.get("movie_name", "Unknown Movie")
-        landscape = data.get("landscape", [])
-
-        if not landscape:
-            await message.reply_text(f"No poster found for {movie_name}.")
+        posters = data.get("posters", [])
+        if not posters:
+            await message.reply_text("😭 No HQ posters found.")
             return
 
         # Format message with multiple clickable links
-        landscape_text = ""
-        for i, url in enumerate(landscape, start=1):
-            landscape_text += f"{i}. <a href=\"{url}\">Click Here</a>\n"
+        poster_links = ""
+        for i, url in enumerate(posters, start=1):
+            poster_links += f"{i}. <a href=\"{url}\">Click Here</a>\n"
 
         text = (
-            f"Zee Poster: {landscape[0]}\n\n"
-            f"🌄 Landscape:\n{landscape_text}\n"
-            f"🎬 {movie_name}\n\n"
+            f"🎬 <b>BookMyShow Posters</b>\n"
+            f"🔗 <a href=\"{movie_url}\">Source Link</a>\n\n"
+            f"{poster_links}\n"
             f"⚡ Powered By @AddaFiles"
         )
 
-        await message.reply_text(
-            text=text,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=False
-        )
+        # Send first image with caption
+        try:
+            await message.reply_photo(
+                photo=posters[0],
+                caption=text,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=False
+            )
+        except Exception:
+            await message.reply_text(
+                text=text,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=False
+            )
 
     except Exception as e:
-        await message.reply_text(f"⚠️ Error fetching poster: {e}")
+        await message.reply_text(f"⚠️ Error fetching posters: {e}")
