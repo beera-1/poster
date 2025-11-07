@@ -58,13 +58,29 @@ async def sunnxt_poster(client: Client, message: Message):
                     replaced_cover = True
                     continue
                 if line.startswith("Cover:"):
-                    new_lines.append("Cover: LINK")
+                    parts = line.split(" ", 1)
+                    if len(parts) > 1:
+                        new_lines.append(f"Cover: [LINK]({cover})")
+                    else:
+                        new_lines.append(f"Cover: [LINK]({cover})")
                 elif line.startswith("Portrait:"):
-                    new_lines.append("Portrait: LINK")
+                    parts = line.split(" ", 1)
+                    if len(parts) > 1:
+                        new_lines.append(f"Portrait: [LINK]({parts[1]})")
+                    else:
+                        new_lines.append(line)
                 elif line.startswith("Square:"):
-                    new_lines.append("Square: LINK")
+                    parts = line.split(" ", 1)
+                    if len(parts) > 1:
+                        new_lines.append(f"Square: [LINK]({parts[1]})")
+                    else:
+                        new_lines.append(line)
                 elif line.startswith("Logo:"):
-                    new_lines.append("Logo: LINK")
+                    parts = line.split(" ", 1)
+                    if len(parts) > 1:
+                        new_lines.append(f"Logo: [LINK]({parts[1]})")
+                    else:
+                        new_lines.append(line)
                 else:
                     new_lines.append(line)
 
@@ -76,13 +92,13 @@ async def sunnxt_poster(client: Client, message: Message):
                 await message.reply(
                     text[i:i+4096],
                     disable_web_page_preview=False,
-                    parse_mode=ParseMode.DEFAULT,
+                    parse_mode=ParseMode.MARKDOWN,
                 )
         else:
             await message.reply(
                 text,
                 disable_web_page_preview=False,
-                parse_mode=ParseMode.DEFAULT,
+                parse_mode=ParseMode.MARKDOWN,
             )
 
     except Exception as e:
