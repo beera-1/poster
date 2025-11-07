@@ -26,42 +26,46 @@ async def sunnxt_poster(client: Client, message: Message):
         return
 
     try:
-        # Fetch Worker Output
+        # 🔹 1. Fetch Worker output
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 raw_text = await resp.text()
 
-        # Extract the main poster
-        main_poster_match = re.search(r"Sun NXT Posters:\s*(https?://[^\s]+)", raw_text)
-        main_poster = main_poster_match.group(1) if main_poster_match else None
+        # 🔹 2. Extract URLs
+        def extract(label):
+            match = re.search(fr"{label}:\s*(https?://[^\s]+)", raw_text)
+            return match.group(1) if match else None
 
-        # 🔄 Swap Poster ↔ Cover (you asked this earlier)
-        cover_match = re.search(r"Cover:\s*(https?://[^\s]+)", raw_text)
-        if main_poster and cover_match:
-            cover_url = cover_match.group(1)
-            raw_text = raw_text.replace(main_poster, "TEMP_SWAP")
-            raw_text = raw_text.replace(cover_url, main_poster)
-            raw_text = raw_text.replace("TEMP_SWAP", cover_url)
+        poster = extract("Sun NXT Posters")
+        cover = extract("Cover")
+        portrait = extract("Portrait")
+        square = extract("Square")
+        logo = extract("Logo")
 
-        # Replace all URLs except main poster with [**LINK**]
-        def hide_urls_except_main(text, keep_url):
-            urls = re.findall(r"https?://[^\s]+", text)
-            for url in urls:
-                if url != keep_url:
-                    text = text.replace(url, "[**LINK**](" + url + ")")
-            return text
+        # 🔹 3. SWAP Poster ↔ Cover
+        if poster and cover:
+            poster, cover = cover, poster  # swap values cleanly
 
-        final_text = hide_urls_except_main(raw_text, main_poster)
+        # 🔹 4. Extract title
+        title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
+        title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # Make sure bold formatting works
-        final_text = re.sub(r"(?<=:)\s*\[", " [", final_text)
-        final_text = f"**{final_text.strip()}**"
+        # 🔹 5. Format message (poster visible, all others hidden)
+        text = (
+            f"**Sun NXT Posters:** {poster}\n\n"
+            f"**Portrait:** [**LINK**]({portrait})\n"
+            f"**Cover:** [**LINK**]({cover})\n"
+            f"**Square:** [**LINK**]({square})\n"
+            f"**Logo:** [**LINK**]({logo})\n\n"
+            f"🎬 **{title}**\n\n"
+            f"**Powered by @AddaFile**"
+        )
 
-        # Send formatted message
+        # 🔹 6. Send final message (main poster visible)
         await message.reply_text(
-            text=final_text,
+            text=text,
             parse_mode=ParseMode.MARKDOWN,
-            disable_web_page_preview=False  # show main poster preview
+            disable_web_page_preview=False
         )
 
     except Exception as e:
