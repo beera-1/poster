@@ -4,8 +4,11 @@ from pyrogram.enums import ParseMode
 import aiohttp
 import re
 
-WORKER_URL = "https://sunnxt-poster-worker.yourdomain.workers.dev/"
-OFFICIAL_GROUPS = ["-1002311378229"]  # Replace with your official group ID
+# 🌞 Your deployed Worker
+WORKER_URL = "https://sun.botzs.workers.dev/"
+
+# 🛡️ Allowed groups (replace with yours)
+OFFICIAL_GROUPS = ["-1002311378229"]
 
 @Client.on_message(filters.command(["sunnxt", "sun"]))
 async def sunnxt_poster(client: Client, message: Message):
@@ -14,7 +17,7 @@ async def sunnxt_poster(client: Client, message: Message):
         await message.reply("❌ This command only works in our official group.")
         return
 
-    # ------------------ Command Validation ------------------
+    # ------------------ Command Check ------------------
     if len(message.command) < 2:
         await message.reply(
             "Usage:\n`/sunnxt <SunNXT page URL>`",
@@ -24,7 +27,7 @@ async def sunnxt_poster(client: Client, message: Message):
 
     page_url = message.text.split(" ", 1)[1].strip()
 
-    # ------------------ Fetch Data from Worker ------------------
+    # ------------------ Fetch from Worker ------------------
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{WORKER_URL}?url={page_url}", timeout=20) as resp:
@@ -33,34 +36,36 @@ async def sunnxt_poster(client: Client, message: Message):
                     return
                 text = await resp.text()
 
-        # ------------------ Swap Cover and Sun NXT Poster ------------------
-        # Find the main poster (top image) and cover URLs using regex
-        pattern = r"(https:\/\/sund-images\.sunnxt\.com\/[^\s]+1920x1080[^\s]+\.jpg)"
-        posters = re.findall(pattern, text)
+        # ------------------ Swap Main Poster and Cover ------------------
+        # Capture all 1920x1080 image links
+        posters = re.findall(
+            r"https:\/\/sund-images\.sunnxt\.com\/[^\s]+1920x1080[^\s]+\.jpg", text
+        )
 
         if len(posters) > 1:
-            # Swap the first (main) and second (cover)
-            main_poster = posters[1]
-            cover = posters[0]
+            # swap order: make 2nd image main poster, 1st image cover
+            main_poster, cover = posters[1], posters[0]
 
-            # Replace in text
+            # rebuild text line by line
             lines = text.splitlines()
             new_lines = []
-            swapped = False
+            main_done = False
+            cover_done = False
 
             for line in lines:
-                if line.startswith("Sun NXT Posters:") and not swapped:
+                if line.startswith("Sun NXT Posters:") and not main_done:
                     new_lines.append("Sun NXT Posters:")
                     new_lines.append(main_poster)
-                    swapped = True
-                elif line.startswith("Cover:") and cover:
+                    main_done = True
+                elif line.startswith("Cover:") and not cover_done:
                     new_lines.append(f"Cover: {cover}")
+                    cover_done = True
                 else:
                     new_lines.append(line)
 
             text = "\n".join(new_lines)
 
-        # ------------------ Send Result ------------------
+        # ------------------ Send Response ------------------
         if len(text) > 4096:
             for i in range(0, len(text), 4096):
                 await message.reply(text[i:i+4096], disable_web_page_preview=False)
