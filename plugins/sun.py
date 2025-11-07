@@ -4,16 +4,14 @@ from pyrogram.enums import ParseMode
 import aiohttp
 import re
 
-WORKER_URL = "https://sun.botzs.workers.dev/"  # 🌐 your SunNXT Worker URL
+WORKER_URL = "https://sun.botzs.workers.dev/"  # your working SunNXT Worker URL
 
 @Client.on_message(filters.command(["sun", "sunnxt"]))
 async def sunnxt_poster(client: Client, message: Message):
-    # ------------------ Authorization Check ------------------
-    OFFICIAL_GROUPS = ["-1002311378229"]  # your official group ID(s)
+    OFFICIAL_GROUPS = ["-1002311378229"]
     if str(message.chat.id) not in OFFICIAL_GROUPS:
         await message.reply("❌ This command only works in our official group.")
         return
-    # ---------------------------------------------------------
 
     if len(message.command) < 2:
         await message.reply_text(
@@ -33,11 +31,10 @@ async def sunnxt_poster(client: Client, message: Message):
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 raw_text = await resp.text()
 
-        # ---------------- CLEAN WORKER TEXT ----------------
-        # Remove any previous “Portrait / Cover / Square / Logo” lines from Worker
+        # Clean out duplicate lines
         raw_text = re.sub(r"(Portrait:.*|Cover:.*|Square:.*|Logo:.*)", "", raw_text)
 
-        # ---------------- EXTRACT LINKS ----------------
+        # Extract poster links
         def extract(label):
             match = re.search(fr"{label}:\s*(https?://[^\s]+)", raw_text)
             return match.group(1) if match else None
@@ -53,31 +50,40 @@ async def sunnxt_poster(client: Client, message: Message):
         square = square.group(0) if square else None
         logo = logo.group(0) if logo else None
 
-        # ---------------- SWAP POSTER ↔ COVER ----------------
+        # Swap Poster ↔ Cover
         if poster and cover:
             poster, cover = cover, poster
 
-        # ---------------- EXTRACT TITLE ----------------
+        # Extract title
         title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
         title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # ---------------- FINAL CLEAN MESSAGE ----------------
-        text = (
-            f"Sun NXT Posters:\n{poster}\n\n"
-            f"Portrait: [Link]({portrait})\n\n"
-            f"Cover: [Link]({cover})\n\n"
-            f"Square: [Link]({square})\n\n"
-            f"Logo: [Link]({logo})\n\n"
-            f"{title}\n\n"
-            f"Powered by @AddaFile"
+        # Final caption (HTML mode so links are clickable)
+        caption = (
+            f"<b>Sun NXT Posters:</b>\n{poster}\n\n"
+            f"<b>Portrait:</b> <a href='{portrait}'>Link</a>\n\n"
+            f"<b>Cover:</b> <a href='{cover}'>Link</a>\n\n"
+            f"<b>Square:</b> <a href='{square}'>Link</a>\n\n"
+            f"<b>Logo:</b> <a href='{logo}'>Link</a>\n\n"
+            f"<b>{title}</b>\n\n"
+            f"Powered by <b>@AddaFile</b>"
         )
 
-        # ---------------- SEND MESSAGE ----------------
-        await message.reply_text(
-            text=text,
-            parse_mode=ParseMode.MARKDOWN,
-            disable_web_page_preview=False
-        )
+        # Send as photo with caption (if poster exists)
+        if poster:
+            await client.send_photo(
+                chat_id=message.chat.id,
+                photo=poster,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+        else:
+            await message.reply_text(
+                text=caption,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=False
+            )
 
     except Exception as e:
-        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n`{e}`")
+        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n<code>{e}</code>")
