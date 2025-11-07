@@ -54,12 +54,30 @@ async def sunnxt_poster(client: Client, message: Message):
                     replaced_main = True
                     continue
                 if replaced_main and line.startswith("http") and not replaced_cover:
-                    # Replace the next line (original poster URL)
+                    # Replace next line (original poster URL) with the swapped one
                     new_lines.append(main_poster)
                     replaced_cover = True
                     continue
                 if line.startswith("Cover:"):
-                    new_lines.append(f"Cover: {cover}")
+                    new_lines.append(f"Cover: [**LINK**]({cover})")
+                elif line.startswith("Portrait:"):
+                    parts = line.split(" ", 1)
+                    if len(parts) > 1:
+                        new_lines.append(f"Portrait: [**LINK**]({parts[1]})")
+                    else:
+                        new_lines.append(line)
+                elif line.startswith("Square:"):
+                    parts = line.split(" ", 1)
+                    if len(parts) > 1:
+                        new_lines.append(f"Square: [**LINK**]({parts[1]})")
+                    else:
+                        new_lines.append(line)
+                elif line.startswith("Logo:"):
+                    parts = line.split(" ", 1)
+                    if len(parts) > 1:
+                        new_lines.append(f"Logo: [**LINK**]({parts[1]})")
+                    else:
+                        new_lines.append(line)
                 else:
                     new_lines.append(line)
 
@@ -68,9 +86,17 @@ async def sunnxt_poster(client: Client, message: Message):
         # ------------------ Send Response ------------------
         if len(text) > 4096:
             for i in range(0, len(text), 4096):
-                await message.reply(text[i:i+4096], disable_web_page_preview=False)
+                await message.reply(
+                    text[i:i+4096],
+                    disable_web_page_preview=False,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
         else:
-            await message.reply(text, disable_web_page_preview=False)
+            await message.reply(
+                text,
+                disable_web_page_preview=False,
+                parse_mode=ParseMode.MARKDOWN,
+            )
 
     except Exception as e:
         await message.reply(f"⚠️ Error: {e}")
