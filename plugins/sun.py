@@ -39,7 +39,7 @@ async def sunnxt_poster(client: Client, message: Message):
         )
 
         if len(posters) > 1:
-            # swap order: make 2nd image the main poster, 1st image the cover
+            # swap order: make 2nd image main poster, 1st image cover
             main_poster, cover = posters[1], posters[0]
 
             # rebuild text safely (replace instead of append)
@@ -54,30 +54,17 @@ async def sunnxt_poster(client: Client, message: Message):
                     replaced_main = True
                     continue
                 if replaced_main and line.startswith("http") and not replaced_cover:
-                    # Replace next line (original poster URL) with the swapped one
                     new_lines.append(main_poster)
                     replaced_cover = True
                     continue
                 if line.startswith("Cover:"):
-                    new_lines.append(f"Cover: [**LINK**]({cover})")
+                    new_lines.append("Cover: LINK")
                 elif line.startswith("Portrait:"):
-                    parts = line.split(" ", 1)
-                    if len(parts) > 1:
-                        new_lines.append(f"Portrait: [**LINK**]({parts[1]})")
-                    else:
-                        new_lines.append(line)
+                    new_lines.append("Portrait: LINK")
                 elif line.startswith("Square:"):
-                    parts = line.split(" ", 1)
-                    if len(parts) > 1:
-                        new_lines.append(f"Square: [**LINK**]({parts[1]})")
-                    else:
-                        new_lines.append(line)
+                    new_lines.append("Square: LINK")
                 elif line.startswith("Logo:"):
-                    parts = line.split(" ", 1)
-                    if len(parts) > 1:
-                        new_lines.append(f"Logo: [**LINK**]({parts[1]})")
-                    else:
-                        new_lines.append(line)
+                    new_lines.append("Logo: LINK")
                 else:
                     new_lines.append(line)
 
@@ -89,13 +76,13 @@ async def sunnxt_poster(client: Client, message: Message):
                 await message.reply(
                     text[i:i+4096],
                     disable_web_page_preview=False,
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode=ParseMode.DEFAULT,
                 )
         else:
             await message.reply(
                 text,
                 disable_web_page_preview=False,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.DEFAULT,
             )
 
     except Exception as e:
