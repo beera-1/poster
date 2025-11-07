@@ -46,13 +46,10 @@ async def sunnxt_poster(client: Client, message: Message):
             raw_text = raw_text.replace(cover_url, poster_url)
             raw_text = raw_text.replace("TEMP_SWAP", cover_url)
 
-        # Clean up duplicates like "Full Movie Online Full Movie Online"
-        raw_text = re.sub(r"(Full Movie Online\s*)+", "Full Movie Online", raw_text)
-
         # ---------------- EXTRACT LINKS ----------------
         def extract(label):
             match = re.search(fr"{label}:\s*(https?://[^\s]+)", raw_text)
-            return match.group(1) if match else "N/A"
+            return match.group(1) if match else None
 
         poster = extract("Sun NXT Posters")
         portrait = extract("Portrait")
@@ -60,19 +57,19 @@ async def sunnxt_poster(client: Client, message: Message):
         square = extract("Square")
         logo = extract("Logo")
 
-        # Extract title
+        # ---------------- EXTRACT TITLE ----------------
         title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
         title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # ---------------- BUILD MARKDOWN MESSAGE ----------------
+        # ---------------- BUILD CLEAN MESSAGE ----------------
         text = (
-            f"Sun NXT Posters: [Link]({poster})\n"
-            f"Portrait: [Link]({portrait})\n"
-            f"Cover: [Link]({cover})\n"
-            f"Square: [Link]({square})\n"
+            f"Sun NXT Posters:\n{poster}\n\n"
+            f"Portrait: [Link]({portrait})\n\n"
+            f"Cover: [Link]({cover})\n\n"
+            f"Square: [Link]({square})\n\n"
             f"Logo: [Link]({logo})\n\n"
-            f"🎬 **{title}** Full Movie Online\n\n"
-            f"⚡ **Powered by** **@AddaFile**"
+            f"{title}\n\n"
+            f"Powered by @AddaFile"
         )
 
         # ---------------- SEND MESSAGE ----------------
