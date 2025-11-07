@@ -13,8 +13,8 @@ async def sunnxt_poster(client: Client, message: Message):
     if str(message.chat.id) not in OFFICIAL_GROUPS:
         await message.reply("❌ This command only works in our official group.")
         return
-    # ---------------------------------------------------------
 
+    # ------------------ URL Check ------------------
     if len(message.command) < 2:
         await message.reply_text(
             "Send a Sun NXT movie URL like:\n"
@@ -23,56 +23,75 @@ async def sunnxt_poster(client: Client, message: Message):
         return
 
     movie_url = message.command[1]
-
     if "sunnxt.com" not in movie_url:
         await message.reply_text("Please provide a valid Sun NXT movie URL.")
         return
 
     try:
+        # Fetch Worker Output
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 raw_text = await resp.text()
 
-        # ---------------- SWAP LOGIC ----------------
-        poster_match = re.search(r"Sun NXT Posters:\s*(https?://[^\s]+)", raw_text)
-        cover_match = re.search(r"Cover:\s*(https?://[^\s]+)", raw_text)
-
-        poster_url = poster_match.group(1) if poster_match else None
-        cover_url = cover_match.group(1) if cover_match else None
-
-        # 🔄 Swap Poster ↔ Cover
-        if poster_url and cover_url:
-            raw_text = raw_text.replace(poster_url, "TEMP_SWAP")
-            raw_text = raw_text.replace(cover_url, poster_url)
-            raw_text = raw_text.replace("TEMP_SWAP", cover_url)
-
-        # ---------------- EXTRACT LINKS ----------------
+        # Extract URLs
         def extract(label):
             match = re.search(fr"{label}:\s*(https?://[^\s]+)", raw_text)
             return match.group(1) if match else None
 
-        poster = extract("Sun NXT Posters")
+        main_poster = extract("Sun NXT Posters")
         portrait = extract("Portrait")
         cover = extract("Cover")
         square = extract("Square")
         logo = extract("Logo")
 
-        # ---------------- EXTRACT TITLE ----------------
+        # Swap Poster ↔ Cover
+        if main_poster and cover:
+            main_poster, cover = cover, main_poster
+
+        # Extract Title
         title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
         title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # ---------------- BUILD CLEAN MESSAGE ----------------
+        # Detect Language
+        lang_map = {
+            "kannada": "Kannada",
+            "tamil": "Tamil",
+            "telugu": "Telugu",
+            "malayalam": "Malayalam",
+            "hindi": "Hindi"
+        }
+        language = None
+        for key, name in lang_map.items():
+            if key in movie_url.lower() or key in raw_text.lower():
+                language = name
+                break
+
+        # Detect Year
+        year_match = re.search(r"\b(19|20)\d{2}\b", movie_url)
+        year = year_match.group(0) if year_match else None
+
+        # Format Title
+        if year and language:
+            title = f"🎬 **{title} ({year}) ({language})**"
+        elif year:
+            title = f"🎬 **{title} ({year})**"
+        elif language:
+            title = f"🎬 **{title} ({language})**"
+        else:
+            title = f"🎬 **{title}**"
+
+        # Build Final Message
         text = (
-            f"Sun NXT Posters:\n{poster}\n\n"
-            f"Portrait: [Link]({portrait})\n\n"
-            f"Cover: [Link]({cover})\n\n"
-            f"Square: [Link]({square})\n\n"
-            f"Logo: [Link]({logo})\n\n"
+            f"**Sun NXT Posters:**\n{main_poster}\n\n"
+            f"**Portrait:** [**LINK**]({portrait})\n\n"
+            f"**Cover:** [**LINK**]({cover})\n\n"
+            f"**Square:** [**LINK**]({square})\n\n"
+            f"**Logo:** [**LINK**]({logo})\n\n"
             f"{title}\n\n"
-            f"Powered by @AddaFile"
+            f"**Powered by @AddaFile**"
         )
 
-        # ---------------- SEND MESSAGE ----------------
+        # Send message (main poster visible)
         await message.reply_text(
             text=text,
             parse_mode=ParseMode.MARKDOWN,
@@ -80,4 +99,4 @@ async def sunnxt_poster(client: Client, message: Message):
         )
 
     except Exception as e:
-        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n{e}")
+        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n`{e}`")
