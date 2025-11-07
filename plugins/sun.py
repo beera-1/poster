@@ -4,7 +4,7 @@ from pyrogram.enums import ParseMode
 import aiohttp
 import re
 
-WORKER_URL = "https://sun.botzs.workers.dev/"  # 🌐 your working SunNXT Worker
+WORKER_URL = "https://sun.botzs.workers.dev/"  # 🌐 your SunNXT Worker URL
 
 @Client.on_message(filters.command(["sun", "sunnxt"]))
 async def sunnxt_poster(client: Client, message: Message):
@@ -40,51 +40,47 @@ async def sunnxt_poster(client: Client, message: Message):
         poster_url = poster_match.group(1) if poster_match else None
         cover_url = cover_match.group(1) if cover_match else None
 
-        # Swap Poster ↔ Cover
+        # 🔄 Swap Poster ↔ Cover
         if poster_url and cover_url:
             raw_text = raw_text.replace(poster_url, "TEMP_SWAP")
             raw_text = raw_text.replace(cover_url, poster_url)
             raw_text = raw_text.replace("TEMP_SWAP", cover_url)
 
-        # Clean duplicates like "Full Movie Online Full Movie Online"
+        # Clean up duplicates like "Full Movie Online Full Movie Online"
         raw_text = re.sub(r"(Full Movie Online\s*)+", "Full Movie Online", raw_text)
 
-        # ---------------- MAKE LINKS CLICKABLE ----------------
-        def make_clickable(label, url):
-            return f"{label} <a href=\"{url}\">Click Here</a>" if url != "N/A" else f"{label} N/A"
+        # ---------------- EXTRACT LINKS ----------------
+        def extract(label):
+            match = re.search(fr"{label}:\s*(https?://[^\s]+)", raw_text)
+            return match.group(1) if match else "N/A"
 
-        poster_link = re.search(r"Sun NXT Posters:\s*(https?://[^\s]+)", raw_text)
-        portrait_link = re.search(r"Portrait:\s*(https?://[^\s]+)", raw_text)
-        cover_link = re.search(r"Cover:\s*(https?://[^\s]+)", raw_text)
-        square_link = re.search(r"Square:\s*(https?://[^\s]+)", raw_text)
-        logo_link = re.search(r"Logo:\s*(https?://[^\s]+)", raw_text)
+        poster = extract("Sun NXT Posters")
+        portrait = extract("Portrait")
+        cover = extract("Cover")
+        square = extract("Square")
+        logo = extract("Logo")
 
-        poster = make_clickable("Sun NXT Posters:", poster_link.group(1) if poster_link else "N/A")
-        portrait = make_clickable("Portrait:", portrait_link.group(1) if portrait_link else "N/A")
-        cover = make_clickable("Cover:", cover_link.group(1) if cover_link else "N/A")
-        square = make_clickable("Square:", square_link.group(1) if square_link else "N/A")
-        logo = make_clickable("Logo:", logo_link.group(1) if logo_link else "N/A")
-
-        # Extract title (first line after logo or end of section)
+        # Extract title
         title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
         title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # ---------------- BUILD FINAL MESSAGE ----------------
-        formatted = (
-            f"{poster}\n\n"
-            f"{portrait}\n\n"
-            f"{cover}\n\n"
-            f"{square}\n\n"
-            f"{logo}\n\n"
-            f"🎬 <b>{title}</b> Full Movie Online\n\n"
-            f"⚡ <b>Powered by @AddaFile</b>"
+        # ---------------- BUILD MARKDOWN MESSAGE ----------------
+        text = (
+            f"Sun NXT Posters: [Link]({poster})\n"
+            f"Portrait: [Link]({portrait})\n"
+            f"Cover: [Link]({cover})\n"
+            f"Square: [Link]({square})\n"
+            f"Logo: [Link]({logo})\n\n"
+            f"🎬 **{title}** Full Movie Online\n\n"
+            f"⚡ **Powered by** **@AddaFile**"
         )
 
+        # ---------------- SEND MESSAGE ----------------
         await message.reply_text(
-            text=formatted,
-            parse_mode=ParseMode.HTML,
+            text=text,
+            parse_mode=ParseMode.MARKDOWN,
             disable_web_page_preview=False
         )
 
     except Exception as e:
-        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n<code>{e}</code>")
+        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n`{e}`")
