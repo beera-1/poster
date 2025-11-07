@@ -33,18 +33,9 @@ async def sunnxt_poster(client: Client, message: Message):
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 raw_text = await resp.text()
 
-        # ---------------- SWAP LOGIC ----------------
-        poster_match = re.search(r"Sun NXT Posters:\s*(https?://[^\s]+)", raw_text)
-        cover_match = re.search(r"Cover:\s*(https?://[^\s]+)", raw_text)
-
-        poster_url = poster_match.group(1) if poster_match else None
-        cover_url = cover_match.group(1) if cover_match else None
-
-        # 🔄 Swap Poster ↔ Cover
-        if poster_url and cover_url:
-            raw_text = raw_text.replace(poster_url, "TEMP_SWAP")
-            raw_text = raw_text.replace(cover_url, poster_url)
-            raw_text = raw_text.replace("TEMP_SWAP", cover_url)
+        # ---------------- CLEAN WORKER TEXT ----------------
+        # Remove any previous “Portrait / Cover / Square / Logo” lines from Worker
+        raw_text = re.sub(r"(Portrait:.*|Cover:.*|Square:.*|Logo:.*)", "", raw_text)
 
         # ---------------- EXTRACT LINKS ----------------
         def extract(label):
@@ -52,16 +43,25 @@ async def sunnxt_poster(client: Client, message: Message):
             return match.group(1) if match else None
 
         poster = extract("Sun NXT Posters")
-        portrait = extract("Portrait")
-        cover = extract("Cover")
-        square = extract("Square")
-        logo = extract("Logo")
+        portrait = re.search(r"https?://[^\s]+1000x1500[^\s]+", raw_text)
+        cover = re.search(r"https?://[^\s]+1920x1080[^\s]+", raw_text)
+        square = re.search(r"https?://[^\s]+1000x1000[^\s]+", raw_text)
+        logo = re.search(r"https?://[^\s]+\.png", raw_text)
+
+        portrait = portrait.group(0) if portrait else None
+        cover = cover.group(0) if cover else None
+        square = square.group(0) if square else None
+        logo = logo.group(0) if logo else None
+
+        # ---------------- SWAP POSTER ↔ COVER ----------------
+        if poster and cover:
+            poster, cover = cover, poster
 
         # ---------------- EXTRACT TITLE ----------------
         title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
         title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # ---------------- BUILD CLEAN MESSAGE ----------------
+        # ---------------- FINAL CLEAN MESSAGE ----------------
         text = (
             f"Sun NXT Posters:\n{poster}\n\n"
             f"Portrait: [Link]({portrait})\n\n"
