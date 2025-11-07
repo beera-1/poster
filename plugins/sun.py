@@ -59,8 +59,8 @@ async def sunnxt_poster(client: Client, message: Message):
             movie_title = "Unknown"
             movie_year = ""
 
-        lang_match = re.search(r"•\s*([A-Za-z]+)", text)
-        language = lang_match.group(1).strip() if lang_match else ""
+        lang_match = re.search(r"/([a-z]+)-movie-", page_url)
+        language = lang_match.group(1).capitalize() if lang_match else ""
 
         # ------------------ Build Final Formatted Message ------------------
         out = (
