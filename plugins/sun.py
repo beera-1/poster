@@ -26,38 +26,59 @@ async def sunnxt_poster(client: Client, message: Message):
         return
 
     try:
-        # 🔹 1. Fetch full raw worker response
+        # 1️⃣ Fetch Worker output (plain text)
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 raw_text = await resp.text()
 
-        # 🔹 2. Extract links from raw text using regex
+        # 2️⃣ Extract image URLs from raw text
         def extract(label):
             match = re.search(fr"{label}:\s*(https?://[^\s]+)", raw_text)
             return match.group(1) if match else None
 
-        poster = extract("Sun NXT Posters")
+        main_poster = extract("Sun NXT Posters")
         portrait = extract("Portrait")
         cover = extract("Cover")
         square = extract("Square")
         logo = extract("Logo")
 
-        # 🔹 3. Extract title
+        # 3️⃣ Extract movie title from worker text
         title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
         title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # 🔹 4. Swap Poster ↔ Cover
-        if poster and cover:
-            poster, cover = cover, poster
+        # 4️⃣ Auto-detect language from URL or text
+        lang_map = {
+            "kannada": "Kannada",
+            "tamil": "Tamil",
+            "telugu": "Telugu",
+            "malayalam": "Malayalam",
+            "hindi": "Hindi"
+        }
+        language = None
+        for key, name in lang_map.items():
+            if key in movie_url.lower() or key in raw_text.lower():
+                language = name
+                break
 
-        # 🔹 5. Check that poster exists
-        if not poster:
-            await message.reply_text("⚠️ No images found in Sun NXT page.")
-            return
+        # 5️⃣ Auto-detect year (from URL or text)
+        year_match = re.search(r"\b(19|20)\d{2}\b", movie_url)
+        year = year_match.group(0) if year_match else None
 
-        # 🔹 6. Build clean Markdown message
+        # 6️⃣ Format title like Chakravyuha (2016) (Kannada)
+        if year and language:
+            title = f"{title} ({year}) ({language})"
+        elif year:
+            title = f"{title} ({year})"
+        elif language:
+            title = f"{title} ({language})"
+
+        # 7️⃣ ✅ SWAP main_poster ↔ cover (as per your instruction)
+        if main_poster and cover:
+            main_poster, cover = cover, main_poster
+
+        # 8️⃣ Build clean message (only one section)
         text = (
-            f"**Sun NXT Posters:**\n{poster}\n\n"
+            f"**Sun NXT Posters:**\n{main_poster}\n\n"
             f"**Portrait:** [Link]({portrait})\n\n"
             f"**Cover:** [Link]({cover})\n\n"
             f"**Square:** [Link]({square})\n\n"
@@ -66,14 +87,12 @@ async def sunnxt_poster(client: Client, message: Message):
             f"**Powered by @AddaFile**"
         )
 
-        # 🔹 7. Send message with web preview (no send_photo)
+        # 9️⃣ Send clean message with web preview
         await message.reply_text(
             text=text,
             parse_mode=ParseMode.MARKDOWN,
-            disable_web_page_preview=False  # <-- this enables image preview
+            disable_web_page_preview=False  # shows poster preview
         )
-
-        # ✅ raw_text kept for internal use but not displayed
 
     except Exception as e:
         await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n`{e}`")
