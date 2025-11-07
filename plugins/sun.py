@@ -4,7 +4,7 @@ from pyrogram.enums import ParseMode
 import aiohttp
 import re
 
-WORKER_URL = "https://sun.botzs.workers.dev/"  # your working SunNXT Worker URL
+WORKER_URL = "https://sun.botzs.workers.dev/"  # your Cloudflare Worker URL
 
 @Client.on_message(filters.command(["sun", "sunnxt"]))
 async def sunnxt_poster(client: Client, message: Message):
@@ -21,7 +21,6 @@ async def sunnxt_poster(client: Client, message: Message):
         return
 
     movie_url = message.command[1]
-
     if "sunnxt.com" not in movie_url:
         await message.reply_text("Please provide a valid Sun NXT movie URL.")
         return
@@ -31,10 +30,10 @@ async def sunnxt_poster(client: Client, message: Message):
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
                 raw_text = await resp.text()
 
-        # Clean out duplicate lines
+        # Remove duplicate raw lines
         raw_text = re.sub(r"(Portrait:.*|Cover:.*|Square:.*|Logo:.*)", "", raw_text)
 
-        # Extract poster links
+        # Extract links
         def extract(label):
             match = re.search(fr"{label}:\s*(https?://[^\s]+)", raw_text)
             return match.group(1) if match else None
@@ -58,7 +57,7 @@ async def sunnxt_poster(client: Client, message: Message):
         title_match = re.search(r"\n\n(.+?) Full Movie Online", raw_text, re.S)
         title = title_match.group(1).strip() if title_match else "Sun NXT Movie"
 
-        # Final caption (HTML mode so links are clickable)
+        # ✅ Caption with clickable links (HTML)
         caption = (
             f"<b>Sun NXT Posters:</b>\n{poster}\n\n"
             f"<b>Portrait:</b> <a href='{portrait}'>Link</a>\n\n"
@@ -69,21 +68,20 @@ async def sunnxt_poster(client: Client, message: Message):
             f"Powered by <b>@AddaFile</b>"
         )
 
-        # Send as photo with caption (if poster exists)
+        # ✅ Send poster as a photo with HTML caption
         if poster:
             await client.send_photo(
                 chat_id=message.chat.id,
                 photo=poster,
                 caption=caption,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True
+                parse_mode=ParseMode.HTML
             )
         else:
+            # fallback text-only if no image
             await message.reply_text(
                 text=caption,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=False
+                parse_mode=ParseMode.HTML
             )
 
     except Exception as e:
-        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n<code>{e}</code>")
+        await message.reply_text(f"⚠️ Error fetching Sun NXT poster:\n<code>{e}</code>", parse_mode=ParseMode.HTML)
