@@ -37,6 +37,7 @@ async def sunnxt_poster(client: Client, message: Message):
         posters = re.findall(
             r"https:\/\/sund-images\.sunnxt\.com\/[^\s]+1920x1080[^\s]+\.jpg", text
         )
+
         main_poster = posters[1] if len(posters) > 1 else (posters[0] if posters else "")
         cover = posters[0] if len(posters) > 1 else ""
 
@@ -58,32 +59,32 @@ async def sunnxt_poster(client: Client, message: Message):
             movie_title = "Unknown"
             movie_year = ""
 
-        # Detect language from URL (example: /kannada-movie-)
-        lang_match = re.search(r"/([a-z]+)-movie-", page_url)
-        language = lang_match.group(1).capitalize() if lang_match else ""
+        lang_match = re.search(r"•\s*([A-Za-z]+)", text)
+        language = lang_match.group(1).strip() if lang_match else ""
 
-        # ------------------ Build Final Compact Bold Message ------------------
+        # ------------------ Build Final Formatted Message ------------------
         out = (
-            f"**Sun NXT Posters:**"
-            f"**{main_poster}**"
+            f"**Sun NXT Posters:**\n"
+            f"**{main_poster}**\n\n"
         )
 
         if portrait_url:
-            out += f"**Portrait:** [**LINK**]({portrait_url})"
+            out += f"**Portrait:** [**LINK**]({portrait_url})\n\n"
         if cover:
-            out += f"**Cover:** [**LINK**]({cover})"
+            out += f"**Cover:** [**LINK**]({cover})\n\n"
         if square_url:
-            out += f"**Square:** [**LINK**]({square_url})"
+            out += f"**Square:** [**LINK**]({square_url})\n\n"
         if logo_url:
-            out += f"**Logo:** [**LINK**]({logo_url})"
+            out += f"**Logo:** [**LINK**]({logo_url})\n\n"
 
+        # Title + Year + Language (Fully Bold)
         details = f"**{movie_title} ({movie_year})"
         if language:
             details += f" • {language}"
-        details += "**"
+        details += "**\n\n"
 
         out += details
-        out += "\n**Powered by** \n**@AddaFile**"
+        out += "**Powered by @AddaFile**"
 
         # ------------------ Send Response ------------------
         await message.reply(
