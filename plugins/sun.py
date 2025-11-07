@@ -5,6 +5,13 @@ import aiohttp
 import re
 
 WORKER_URL = "https://sun.botzs.workers.dev/"
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from pyrogram.enums import ParseMode
+import aiohttp
+import re
+
+WORKER_URL = "https://sun.botzs.workers.dev/"
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 @Client.on_message(filters.command(["sunnxt", "sun"]))
@@ -17,8 +24,8 @@ async def sunnxt_poster(client: Client, message: Message):
     # ------------------ Command Check ------------------
     if len(message.command) < 2:
         await message.reply(
-            "Usage:\n`/sunnxt <SunNXT page URL>`",
-            parse_mode=ParseMode.MARKDOWN
+            "**Usage:**\n**/sunnxt <SunNXT page URL>**",
+            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
@@ -39,10 +46,10 @@ async def sunnxt_poster(client: Client, message: Message):
         )
 
         if len(posters) > 1:
-            # swap order: make 2nd image main poster, 1st image cover
+            # Swap order: make 2nd image main poster, 1st image cover
             main_poster, cover = posters[1], posters[0]
 
-            # rebuild text safely (replace instead of append)
+            # rebuild text safely
             lines = text.splitlines()
             new_lines = []
             replaced_main = False
@@ -50,39 +57,38 @@ async def sunnxt_poster(client: Client, message: Message):
 
             for line in lines:
                 if line.startswith("Sun NXT Posters:"):
-                    new_lines.append("Sun NXT Posters:")
+                    new_lines.append("**Sun NXT Posters:**")
                     replaced_main = True
                     continue
                 if replaced_main and line.startswith("http") and not replaced_cover:
-                    new_lines.append(main_poster)
+                    new_lines.append(f"**{main_poster}**")
                     replaced_cover = True
                     continue
                 if line.startswith("Cover:"):
-                    parts = line.split(" ", 1)
-                    if len(parts) > 1:
-                        new_lines.append(f"Cover: [LINK]({cover})")
-                    else:
-                        new_lines.append(f"Cover: [LINK]({cover})")
+                    new_lines.append(f"**Cover:** [**LINK**]({cover})")
                 elif line.startswith("Portrait:"):
                     parts = line.split(" ", 1)
                     if len(parts) > 1:
-                        new_lines.append(f"Portrait: [LINK]({parts[1]})")
+                        new_lines.append(f"**Portrait:** [**LINK**]({parts[1]})")
                     else:
-                        new_lines.append(line)
+                        new_lines.append("**Portrait:** [**LINK**]()")
                 elif line.startswith("Square:"):
                     parts = line.split(" ", 1)
                     if len(parts) > 1:
-                        new_lines.append(f"Square: [LINK]({parts[1]})")
+                        new_lines.append(f"**Square:** [**LINK**]({parts[1]})")
                     else:
-                        new_lines.append(line)
+                        new_lines.append("**Square:** [**LINK**]()")
                 elif line.startswith("Logo:"):
                     parts = line.split(" ", 1)
                     if len(parts) > 1:
-                        new_lines.append(f"Logo: [LINK]({parts[1]})")
+                        new_lines.append(f"**Logo:** [**LINK**]({parts[1]})")
                     else:
-                        new_lines.append(line)
+                        new_lines.append("**Logo:** [**LINK**]()")
+                elif line.strip() and not line.startswith("Powered by"):
+                    # Bold everything else (movie title)
+                    new_lines.append(f"**{line.strip()}**")
                 else:
-                    new_lines.append(line)
+                    new_lines.append("**Powered by @AddaFile**")
 
             text = "\n".join(new_lines)
 
@@ -102,4 +108,4 @@ async def sunnxt_poster(client: Client, message: Message):
             )
 
     except Exception as e:
-        await message.reply(f"⚠️ Error: {e}")
+        await message.reply(f"⚠️ **Error:** {e}")
