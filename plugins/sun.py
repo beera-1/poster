@@ -5,13 +5,6 @@ import aiohttp
 import re
 
 WORKER_URL = "https://sun.botzs.workers.dev/"
-from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.enums import ParseMode
-import aiohttp
-import re
-
-WORKER_URL = "https://sun.botzs.workers.dev/"
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 @Client.on_message(filters.command(["sunnxt", "sun"]))
@@ -45,67 +38,45 @@ async def sunnxt_poster(client: Client, message: Message):
             r"https:\/\/sund-images\.sunnxt\.com\/[^\s]+1920x1080[^\s]+\.jpg", text
         )
 
-        if len(posters) > 1:
-            # Swap order: make 2nd image main poster, 1st image cover
-            main_poster, cover = posters[1], posters[0]
+        main_poster = posters[1] if len(posters) > 1 else (posters[0] if posters else "")
+        cover = posters[0] if len(posters) > 1 else ""
 
-            # rebuild text safely
-            lines = text.splitlines()
-            new_lines = []
-            replaced_main = False
-            replaced_cover = False
+        # Extract image URLs from text
+        portrait = re.search(r"Portrait:\s*(https[^\s]+)", text)
+        square = re.search(r"Square:\s*(https[^\s]+)", text)
+        logo = re.search(r"Logo:\s*(https[^\s]+)", text)
 
-            for line in lines:
-                if line.startswith("Sun NXT Posters:"):
-                    new_lines.append("**Sun NXT Posters:**")
-                    replaced_main = True
-                    continue
-                if replaced_main and line.startswith("http") and not replaced_cover:
-                    new_lines.append(f"**{main_poster}**")
-                    replaced_cover = True
-                    continue
-                if line.startswith("Cover:"):
-                    new_lines.append(f"**Cover:** [**LINK**]({cover})")
-                elif line.startswith("Portrait:"):
-                    parts = line.split(" ", 1)
-                    if len(parts) > 1:
-                        new_lines.append(f"**Portrait:** [**LINK**]({parts[1]})")
-                    else:
-                        new_lines.append("**Portrait:** [**LINK**]()")
-                elif line.startswith("Square:"):
-                    parts = line.split(" ", 1)
-                    if len(parts) > 1:
-                        new_lines.append(f"**Square:** [**LINK**]({parts[1]})")
-                    else:
-                        new_lines.append("**Square:** [**LINK**]()")
-                elif line.startswith("Logo:"):
-                    parts = line.split(" ", 1)
-                    if len(parts) > 1:
-                        new_lines.append(f"**Logo:** [**LINK**]({parts[1]})")
-                    else:
-                        new_lines.append("**Logo:** [**LINK**]()")
-                elif line.strip() and not line.startswith("Powered by"):
-                    # Bold everything else (movie title)
-                    new_lines.append(f"**{line.strip()}**")
-                else:
-                    new_lines.append("**Powered by @AddaFile**")
+        portrait_url = portrait.group(1) if portrait else ""
+        square_url = square.group(1) if square else ""
+        logo_url = logo.group(1) if logo else ""
 
-            text = "\n".join(new_lines)
+        # Extract movie title (last bold line or fallback)
+        movie_match = re.search(r"\n([A-Za-z0-9\s\(\)]+)\n\nPowered", text)
+        movie_name = movie_match.group(1).strip() if movie_match else "Unknown"
+
+        # ------------------ Build Final Formatted Message ------------------
+        out = (
+            f"**Sun NXT Posters:**\n"
+            f"**{main_poster}**\n\n"
+        )
+
+        if portrait_url:
+            out += f"**Portrait:** [**LINK**]({portrait_url})\n\n"
+        if cover:
+            out += f"**Cover:** [**LINK**]({cover})\n\n"
+        if square_url:
+            out += f"**Square:** [**LINK**]({square_url})\n\n"
+        if logo_url:
+            out += f"**Logo:** [**LINK**]({logo_url})\n\n"
+
+        out += f"**{movie_name}**\n\n**Powered by @AddaFile**"
 
         # ------------------ Send Response ------------------
-        if len(text) > 4096:
-            for i in range(0, len(text), 4096):
-                await message.reply(
-                    text[i:i+4096],
-                    disable_web_page_preview=False,
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-        else:
-            await message.reply(
-                text,
-                disable_web_page_preview=False,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+        await message.reply(
+            out,
+            disable_web_page_preview=False,
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
     except Exception as e:
         await message.reply(f"⚠️ **Error:** {e}")
