@@ -4,10 +4,7 @@ from pyrogram.enums import ParseMode
 import aiohttp
 import re
 
-# 🌞 Your deployed Worker
 WORKER_URL = "https://sun.botzs.workers.dev/"
-
-# 🛡️ Allowed groups (replace with yours)
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 @Client.on_message(filters.command(["sunnxt", "sun"]))
@@ -37,29 +34,32 @@ async def sunnxt_poster(client: Client, message: Message):
                 text = await resp.text()
 
         # ------------------ Swap Main Poster and Cover ------------------
-        # Capture all 1920x1080 image links
         posters = re.findall(
             r"https:\/\/sund-images\.sunnxt\.com\/[^\s]+1920x1080[^\s]+\.jpg", text
         )
 
         if len(posters) > 1:
-            # swap order: make 2nd image main poster, 1st image cover
+            # swap order: make 2nd image the main poster, 1st image the cover
             main_poster, cover = posters[1], posters[0]
 
-            # rebuild text line by line
+            # rebuild text safely (replace instead of append)
             lines = text.splitlines()
             new_lines = []
-            main_done = False
-            cover_done = False
+            replaced_main = False
+            replaced_cover = False
 
             for line in lines:
-                if line.startswith("Sun NXT Posters:") and not main_done:
+                if line.startswith("Sun NXT Posters:"):
                     new_lines.append("Sun NXT Posters:")
+                    replaced_main = True
+                    continue
+                if replaced_main and line.startswith("http") and not replaced_cover:
+                    # Replace the next line (original poster URL)
                     new_lines.append(main_poster)
-                    main_done = True
-                elif line.startswith("Cover:") and not cover_done:
+                    replaced_cover = True
+                    continue
+                if line.startswith("Cover:"):
                     new_lines.append(f"Cover: {cover}")
-                    cover_done = True
                 else:
                     new_lines.append(line)
 
