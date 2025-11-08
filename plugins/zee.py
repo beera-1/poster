@@ -2,8 +2,9 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ParseMode
 import aiohttp
+import re
 
-WORKER_URL = "https://zee.botzs.workers.dev/"
+WORKER_URL = "https://zee5v2.botzs.workers.dev/"
 
 @Client.on_message(filters.command("zee5"))
 async def zee5_poster(client: Client, message: Message):
@@ -29,29 +30,41 @@ async def zee5_poster(client: Client, message: Message):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{WORKER_URL}?url={movie_url}") as resp:
-                data = await resp.json()
+                text_data = await resp.text()
 
-        movie_name = data.get("movie_name", "Unknown Movie")
-        landscape = data.get("landscape", [])
+        # Extract info from plain text
+        posters = {
+            "list": re.search(r"Zee5V2 Posters:\s*(https[^\s]+)", text_data),
+            "portrait": re.search(r"Portrait:\s*(https[^\s]+)", text_data),
+            "cover": re.search(r"Cover:\s*(https[^\s]+)", text_data),
+            "app_cover": re.search(r"App cover:\s*(https[^\s]+)", text_data),
+            "logo": re.search(r"Logo:\s*(https[^\s]+)", text_data),
+        }
 
-        if not landscape:
-            await message.reply_text(f"No poster found for {movie_name}.")
-            return
+        title_match = re.search(r"\n([^\n]+)\s\(\d{4}\)", text_data)
+        title = title_match.group(1).strip() if title_match else "Unknown Movie"
+        year_match = re.search(r"\((\d{4})\)", text_data)
+        year = year_match.group(1) if year_match else "----"
 
-        # Format message with multiple clickable links
-        landscape_text = ""
-        for i, url in enumerate(landscape, start=1):
-            landscape_text += f"{i}. <a href=\"{url}\">Click Here</a>\n"
+        def link_text(name, key):
+            m = posters.get(key)
+            if m and "not found" not in m.group(1):
+                return f"🔹 <b>{name}</b>: <a href='{m.group(1)}'>Click Here</a>\n"
+            return f"🔹 <b>{name}</b>: Not Found\n"
 
-        text = (
-            f"Zee Poster: {landscape[0]}\n\n"
-            f"🌄 Landscape:\n{landscape_text}\n"
-            f"🎬 {movie_name}\n\n"
-            f"⚡ Powered By @AddaFiles"
+        # Build message
+        result_text = (
+            f"🎬 <b>{title}</b> ({year})\n\n"
+            f"{link_text('List Poster', 'list')}"
+            f"{link_text('Portrait', 'portrait')}"
+            f"{link_text('Cover', 'cover')}"
+            f"{link_text('App Cover', 'app_cover')}"
+            f"{link_text('Logo', 'logo')}\n"
+            f"⚡ Powered by <a href='https://t.me/AddaFiles'>@AddaFiles</a>"
         )
 
         await message.reply_text(
-            text=text,
+            result_text,
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=False
         )
