@@ -34,6 +34,7 @@ def extract_title_from_page(url):
         title_tag = soup.find("title")
         if title_tag:
             title_text = html.unescape(title_tag.text)
+            # Remove "| VivaMax" etc.
             title_text = re.sub(r"\s*\|.*", "", title_text).strip()
             return title_text
     except Exception:
@@ -65,15 +66,15 @@ async def get_vivamax_posters(viva_url):
             if await check_url(session, test_url):
                 results.append((label, test_url))
 
-    # Format output
+    # Format output (plain text — safe for Telegram)
     if not results:
-        return f"😢 No posters found for **{title_text}** (`{content_id}`)"
+        return f"😢 No posters found for {title_text} ({content_id})"
 
-    msg = [f"**VivaMax Posters:**"]
+    msg = ["VivaMax Posters:"]
     for label, link in results:
         msg.append(f"{label}: {link}")
 
-    msg.append(f"\n**{title_text}** ({content_id})")
+    msg.append(f"\n{title_text} ({content_id})")
     return "\n".join(msg)
 
 
@@ -81,10 +82,19 @@ async def get_vivamax_posters(viva_url):
 async def viva_command(client, message):
     """Telegram command /viva <URL>"""
     if len(message.command) < 2:
-        return await message.reply_text("Usage:\n`/viva <VivaMax_URL>`")
+        return await message.reply_text(
+            "Usage:\n/viva <VivaMax_URL>",
+            quote=True,
+            disable_web_page_preview=True,
+            parse_mode=None,
+        )
 
     viva_url = message.text.split(None, 1)[1].strip()
     await message.reply_chat_action("typing")
 
     result = await get_vivamax_posters(viva_url)
-    await message.reply_text(result, disable_web_page_preview=True)
+    await message.reply_text(
+        result,
+        disable_web_page_preview=True,
+        parse_mode=None  # ✅ Prevents ENTITY_BOUNDS_INVALID error
+    )
