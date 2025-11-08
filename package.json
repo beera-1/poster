@@ -1,7 +1,7 @@
 {
   "type": "module",
   "scripts": {
-    "start": "node plugins/zee5_poster.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.21.0",
