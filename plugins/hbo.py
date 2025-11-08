@@ -1,6 +1,6 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ChatAction
 import aiohttp
 
 # Your Cloudflare Worker URL
@@ -24,7 +24,7 @@ async def hbo_poster(client: Client, message: Message):
         return
 
     movie_url = message.text.split(maxsplit=1)[1].strip()
-    await message.reply_chat_action("typing")
+    await message.reply_chat_action(ChatAction.TYPING)
 
     try:
         async with aiohttp.ClientSession() as session:
