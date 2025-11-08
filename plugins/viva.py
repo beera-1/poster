@@ -6,7 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 import html
 
-# VivaMax CDN poster types
+# VivaMax CDN patterns
 POSTER_TYPES = {
     "Poster": "MAIN_HORIZ",
     "Portrait": "MAIN_VERT",
@@ -16,7 +16,7 @@ POSTER_TYPES = {
 
 
 async def check_url(session, url):
-    """Check if a given CDN image URL exists"""
+    """Check if image exists on VivaMax CDN"""
     try:
         async with session.head(url) as resp:
             return resp.status == 200
@@ -25,17 +25,24 @@ async def check_url(session, url):
 
 
 def extract_title_from_page(url):
-    """Extract the movie title using BeautifulSoup"""
+    """Fetch VivaMax page and extract the movie title correctly"""
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200:
             return None
         soup = BeautifulSoup(resp.text, "lxml")
+
+        # Try <meta property="og:title"> (real movie name)
+        meta_tag = soup.find("meta", property="og:title")
+        if meta_tag and meta_tag.get("content"):
+            title_text = html.unescape(meta_tag["content"]).strip()
+            return title_text
+
+        # Fallback to <title>
         title_tag = soup.find("title")
         if title_tag:
             title_text = html.unescape(title_tag.text)
-            # remove "| VivaMax" etc.
             title_text = re.sub(r"\s*\|.*", "", title_text).strip()
             return title_text
     except Exception:
@@ -44,19 +51,16 @@ def extract_title_from_page(url):
 
 
 async def get_vivamax_posters(viva_url):
-    """Build all poster URLs and return formatted text"""
     match = re.search(r"/(movie|series)/([A-Za-z0-9]+)", viva_url)
     if not match:
         return "❌ Invalid VivaMax URL!"
 
     content_id = match.group(2)
 
-    # Extract title
     title_text = extract_title_from_page(viva_url)
     if not title_text:
         title_text = "UNKNOWN"
 
-    # Encode for CDN URL
     title_encoded = title_text.replace(" ", "%20").replace("'", "%27")
 
     results = []
@@ -66,7 +70,6 @@ async def get_vivamax_posters(viva_url):
             if await check_url(session, test_url):
                 results.append((label, test_url))
 
-    # Format reply text (plain, safe for Telegram)
     if not results:
         return f"😢 No posters found for {title_text} ({content_id})"
 
@@ -80,7 +83,7 @@ async def get_vivamax_posters(viva_url):
 
 @Client.on_message(filters.command("viva"))
 async def viva_command(client, message):
-    """Telegram command /viva <URL>"""
+    """Telegram command /viva <VivaMax_URL>"""
     if len(message.command) < 2:
         return await message.reply_text(
             "Usage:\n/viva <VivaMax_URL>",
@@ -90,12 +93,11 @@ async def viva_command(client, message):
         )
 
     viva_url = message.text.split(None, 1)[1].strip()
-    await message.reply_chat_action(ChatAction.TYPING)  # ✅ fixed here
+    await message.reply_chat_action(ChatAction.TYPING)
 
     result = await get_vivamax_posters(viva_url)
-
     await message.reply_text(
         result,
         disable_web_page_preview=True,
-        parse_mode=None  # ✅ prevents ENTITY_BOUNDS_INVALID
+        parse_mode=None
     )
