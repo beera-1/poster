@@ -1,5 +1,6 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from pyrogram.enums import ParseMode   # ✅ FIXED
 import requests
 import re
 import json
@@ -12,9 +13,8 @@ import urllib.parse
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 
-
 # ------------------------------------------------------
-# 🔥 GDFlix Scraper Function (FULL YOUR CODE, unchanged)
+# 🔥 GDFlix Scraper Function
 # ------------------------------------------------------
 HEADERS = {
     "User-Agent": "Mozilla/5.0"
@@ -31,8 +31,10 @@ def scan(text, pattern):
     m = re.search(pattern, text)
     return m.group(0) if m else None
 
+
 def scan_all(text, pattern):
     return re.findall(pattern, text)
+
 
 def try_zfile_fallback(final_url):
     file_id = final_url.split("/file/")[-1]
@@ -51,6 +53,7 @@ def try_zfile_fallback(final_url):
         if wz:
             return wz
     return None
+
 
 
 def scrape_gdflix(url):
@@ -139,22 +142,21 @@ def scrape_gdflix(url):
 
 
 
-
 # ------------------------------------------------------
 # 🔥 PYROGRAM COMMAND (gd / gdflix)
 # ------------------------------------------------------
 @Client.on_message(filters.command(["gd", "gdflix"]))
 async def gdflix_command(client: Client, message: Message):
 
-    # Check group authorization
+    # Check group auth
     if str(message.chat.id) not in OFFICIAL_GROUPS:
         await message.reply("❌ This command only works in our official group.")
         return
 
-    # Extract URL
     parts = message.text.split()
+
     if len(parts) < 2:
-        await message.reply("⚠️ Usage:\n`/gd <gdflix link>`")
+        await message.reply("⚠️ Usage:\n`/gd <gdflix link>`", parse_mode=ParseMode.MARKDOWN)
         return
 
     url = parts[1]
@@ -165,4 +167,5 @@ async def gdflix_command(client: Client, message: Message):
 
     formatted = json.dumps(data, indent=4)
 
-    await message.reply(f"```\n{formatted}\n```", parse_mode="markdown")
+    # ✅ FIXED PARSE MODE
+    await message.reply(f"```\n{formatted}\n```", parse_mode=ParseMode.MARKDOWN)
