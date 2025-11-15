@@ -83,10 +83,10 @@ def scrape_gdflix(url):
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
-    # Extract new InstantDL link
+    # Extract InstantDL
     instantdl = get_instantdl(url)
 
-    # Fetch pure Google URL
+    # Extract PURE GOOGLE link
     google_video = get_google_from_instant(instantdl) if instantdl else None
 
     pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
@@ -102,7 +102,7 @@ def scrape_gdflix(url):
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
 
-        # REPLACE INSTANTDL WITH PURE GOOGLE LINK
+        # ONLY PURE GOOGLE VIDEO URL HERE
         "instantdl": google_video or "Not Found",
 
         "cloud_resume": None,
@@ -114,7 +114,7 @@ def scrape_gdflix(url):
         "final_url": final_url
     }
 
-    # Cloud download (keep original)
+    # Cloud download
     fast = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if fast:
         data["cloud_resume"] = urllib.parse.unquote(fast.split("url=")[1])
@@ -147,7 +147,8 @@ def scrape_gdflix(url):
 
 # ========================= FORMAT MESSAGE =========================
 
-def format_bypass_message(d, name, uid, elapsed):
+def format_bypass_message(d, message, elapsed):
+
     text = (
         f"✅ **GDFlix Extracted Links:**\n\n"
 
@@ -157,7 +158,7 @@ def format_bypass_message(d, name, uid, elapsed):
         f"┠ 💾 **Size:**\n"
         f"┃ {d['size']}\n\n"
 
-        f"┠ 🔗 **Google Video (InstantDL):**\n"
+        f"┠ 🔗 **Google Video:**\n"
         f"┃ {d['instantdl']}\n\n"
 
         f"┠ 🔗 **Cloud Download:**\n"
@@ -180,8 +181,11 @@ def format_bypass_message(d, name, uid, elapsed):
 
         f"━━━━━━━━✦✗✦━━━━━━━━\n\n"
         f"⏱️ **Bypassed in {elapsed} seconds**\n\n"
-        f"🙋 **Requested By :- {name} (#ID_{uid})**"
+
+        f"<b>Requested By :-</b> {message.from_user.mention}\n"
+        f"<b>(#ID_{message.from_user.id})</b>"
     )
+
     return text
 
 
@@ -212,9 +216,6 @@ async def gdflix_handler(client: Client, message: Message):
 
     links = links[:8]  # limit
 
-    requester_name = message.from_user.first_name
-    requester_id = message.from_user.id
-
     for i, url in enumerate(links, 1):
         temp = await message.reply(f"⏳ ({i}/{len(links)}) Bypassing: {url}")
 
@@ -222,5 +223,5 @@ async def gdflix_handler(client: Client, message: Message):
         data = scrape_gdflix(url)
         elapsed = round(time.time() - start, 2)
 
-        formatted = format_bypass_message(data, requester_name, requester_id, elapsed)
+        formatted = format_bypass_message(d, message, elapsed)
         await temp.edit(formatted)
