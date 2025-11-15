@@ -12,12 +12,9 @@ def extract_hubcloud_links(text: str):
     if not text:
         return []
 
-    # Only match FULL valid HubCloud URLs:
-    # https://hubcloud.one/drive/xxxxxxxx
+    # Only match FULL valid HubCloud URLs
     pattern = r"https?://hubcloud\.(one|fyi)/drive/[A-Za-z0-9]+"
-    links = re.findall(pattern, text)
 
-    # re.findall returns only the captured group (".one"), so fix this:
     fixed_links = []
     for match in re.finditer(pattern, text):
         fixed_links.append(match.group(0))
@@ -35,16 +32,12 @@ async def hubcloud_handler(client: Client, message: Message):
 
     hub_links = []
 
-    # ------------------------
-    # Extract from command text
-    # ------------------------
+    # Extract from command
     if len(message.command) > 1:
         raw = " ".join(message.command[1:])
         hub_links.extend(extract_hubcloud_links(raw))
 
-    # ------------------------
     # Extract from reply message
-    # ------------------------
     if message.reply_to_message:
         tx = message.reply_to_message.text or message.reply_to_message.caption or ""
         hub_links.extend(extract_hubcloud_links(tx))
@@ -62,7 +55,7 @@ async def hubcloud_handler(client: Client, message: Message):
     status = await message.reply_text("🔍 Fetching all links...")
 
     # ------------------------
-    # Contact the worker
+    # Contact the Cloudflare Worker
     # ------------------------
     try:
         async with aiohttp.ClientSession() as session:
@@ -86,10 +79,9 @@ async def hubcloud_handler(client: Client, message: Message):
 
         lines = b.split("\n")
 
-        # File Info (Line 0 = Title, 1 = Size, 2 = Original Link)
+        # File Info
         final += "\n".join(lines[:3]) + "\n\n"
 
-        # Start parsing mirrors
         mirror_lines = lines[3:]
 
         label = None
@@ -98,12 +90,8 @@ async def hubcloud_handler(client: Client, message: Message):
             if not ln:
                 continue
 
-            # ------------------------
-            # If this is a LABEL
-            # ------------------------
             if not ln.startswith("http"):
                 label = ln
-
                 icon = (
                     "🔵" if "fsl" in ln.lower()
                     else "🟠" if "10gb" in ln.lower()
@@ -114,11 +102,23 @@ async def hubcloud_handler(client: Client, message: Message):
                 )
                 continue
 
-            # ------------------------
-            # If this is a URL
-            # ------------------------
             final += f"**{icon} {label}**\n{ln}\n\n"
 
         final += "\n"
 
-    await status.edit(final, disable_web_page_preview=True)
+    # ------------------------
+    # FIX: SPLIT IF MESSAGE TOO LONG
+    # ------------------------
+    MAX_LEN = 4000
+
+    if len(final) <= MAX_LEN:
+        await status.edit(final, disable_web_page_preview=True)
+    else:
+        parts = [final[i:i+MAX_LEN] for i in range(0, len(final), MAX_LEN)]
+
+        # Send first part by editing original message
+        await status.edit(parts[0], disable_web_page_preview=True)
+
+        # Send remaining parts
+        for p in parts[1:]:
+            await message.reply(p, disable_web_page_preview=True)
