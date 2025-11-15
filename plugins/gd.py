@@ -3,22 +3,14 @@ from pyrogram.types import Message
 import requests
 import re
 import json
-import time
 from bs4 import BeautifulSoup
 import urllib.parse
+import time
 
-# ------------------------------------------------------
 # Allowed Groups
-# ------------------------------------------------------
 OFFICIAL_GROUPS = ["-1002311378229"]
 
-# ------------------------------------------------------
-# GDFlix Scraper (Your original scraper unchanged)
-# ------------------------------------------------------
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 def fetch_html(url):
     try:
@@ -31,6 +23,9 @@ def scan(text, pattern):
     m = re.search(pattern, text)
     return m.group(0) if m else None
 
+def scan_all(text, pattern):
+    return re.findall(pattern, text)
+
 def try_zfile_fallback(final_url):
     file_id = final_url.split("/file/")[-1]
     if not file_id:
@@ -42,11 +37,11 @@ def try_zfile_fallback(final_url):
     ]
 
     for folder in folders:
-        zurl = f"https://new7.gdflix.net/zfile/{folder}/{file_id}"
-        html, _ = fetch_html(zurl)
-        w = scan(html, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/\S+")
-        if w:
-            return w
+        url = f"https://new7.gdflix.net/zfile/{folder}/{file_id}"
+        html, _ = fetch_html(url)
+        wz = scan(html, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
+        if wz:
+            return wz
     return None
 
 
@@ -55,67 +50,74 @@ def scrape_gdflix(url):
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
-    pix = scan(text, r"https://pixeldrain\.dev/\S+")
+    pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
     if pix:
         pix = pix.replace("?embed", "")
 
-    tg_filesgram = scan(
-        text,
-        r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot"
-    )
-    tg_bot = scan(
-        text,
-        r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+"
-    )
-    tg_old = scan(
-        text,
-        r"https://t\.me/[A-Za-z0-9_/?=]+"
-    )
+    # Telegram links
+    tg_filesgram = scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
+    tg_bot = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
+    tg_old = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
 
     telegram_link = tg_filesgram or tg_bot or tg_old
 
     result = {
-        "title": soup.find("title").text.strip(),
+        "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
         "links": {
-            "instantdl": scan(text, r"https://instant\.busycdn\.cfd/\S+"),
+            "instantdl": None,
             "cloud_resume": None,
-            "telegram": telegram_link,
             "pixeldrain": pix,
-            "drivebot": scan(text, r"https://drivebot\.sbs/download\?id=\S+"),
+            "telegram": telegram_link,
+            "drivebot": scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+"),
             "zfile": [],
             "gofile": None
         },
         "final_url": final_url
     }
 
-    google = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=\S+")
+    # InstantDL new
+    google = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if google:
-        result["links"]["cloud_resume"] = urllib.parse.unquote(google.split("url=")[1])
+        encoded = google.split("url=")[1]
+        result["links"]["cloud_resume"] = urllib.parse.unquote(encoded)
 
-    zfile_direct = scan(text, r"https://\S+/zfile/[0-9]+/\S+")
-    if zfile_direct:
-        zhtml, _ = fetch_html(zfile_direct)
-        worker = scan(zhtml, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/\S+")
-        if worker:
-            result["links"]["zfile"].append(worker)
+    # InstantDL old
+    old = scan(text, r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+")
+    if old:
+        result["links"]["instantdl"] = old
+
+    # ZFILE
+    direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
+    if direct:
+        html2, _ = fetch_html(direct)
+        wz = scan(html2, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
+        if wz:
+            result["links"]["zfile"].append(wz)
 
     if not result["links"]["zfile"]:
         fb = try_zfile_fallback(final_url)
         if fb:
             result["links"]["zfile"].append(fb)
 
-    validate = scan(text, r"https://validate\.mulitup\.workers\.dev/\S+")
-    if validate:
-        vhtml = requests.get(validate, headers=HEADERS).text
-        result["links"]["gofile"] = scan(vhtml, r"https://gofile\.io/d/\S+")
+    # Gofile
+    valid = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
+    if valid:
+        vh = requests.get(valid, headers=HEADERS).text
+        result["links"]["gofile"] = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
 
     return result
 
 
-# ------------------------------------------------------
-# Pyrogram Command
-# ------------------------------------------------------
+def esc(t):
+    """Escape markdown_v2 characters"""
+    if not t:
+        return "Not Found"
+    for ch in r"_*[]()~`>#+-=|{}.!" :
+        t = t.replace(ch, f"\\{ch}")
+    return t
+
+
 @Client.on_message(filters.command(["gd", "gdflix"]))
 async def gdflix_command(client: Client, message: Message):
 
@@ -124,7 +126,7 @@ async def gdflix_command(client: Client, message: Message):
 
     parts = message.text.split()
     if len(parts) < 2:
-        return await message.reply("⚠️ Usage:\n`/gd <gdflix link>`")
+        return await message.reply("⚠️ Usage: /gd <gdflix-url>")
 
     url = parts[1]
 
@@ -132,30 +134,25 @@ async def gdflix_command(client: Client, message: Message):
     await message.reply("⏳ Scraping GDFlix…")
 
     data = scrape_gdflix(url)
-    end = time.time()
-    el = round(end - start, 2)
+    t = data["title"]
+    s = data["size"]
+    L = data["links"]
 
-    l = data["links"]
-
-    # SAFE FORMATTED OUTPUT (NO MARKDOWN ERRORS)
     text = (
-f"✅ **GDFlix Extracted Links:**\n\n"
-f"┎ **📚 Title :-**\n"
-f"┃ {data['title']}\n\n"
-f"┠ **💾 Size :-**\n"
-f"┃ {data['size']}\n\n"
-f"┠ **🔗 Instant DL :-** {'[Click Here](' + l['instantdl'] + ')' if l['instantdl'] else 'Not Found'}\n"
-f"┠ **🔗 Cloud Download :-** {'[Click Here](' + l['cloud_resume'] + ')' if l['cloud_resume'] else 'Not Found'}\n"
-f"┠ **🔗 Telegram File :-** {'[Click Here](' + l['telegram'] + ')' if l['telegram'] else 'Not Found'}\n"
-f"┠ **🔗 Gofile :-** {'[Click Here](' + l['gofile'] + ')' if l['gofile'] else 'Not Found'}\n"
-f"┠ **🔗 Pixeldrain :-** {'[Click Here](' + l['pixeldrain'] + ')' if l['pixeldrain'] else 'Not Found'}\n"
-f"┠ **🔗 Drivebot :-** {'[Click Here](' + l['drivebot'] + ')' if l['drivebot'] else 'Not Found'}\n"
-f"┖ **🔗 ZFile :-** "
-f"{'[Click Here](' + l['zfile'][0] + ')' if l['zfile'] else 'Not Found'}\n\n"
-f"━━━━━━━✦✗✦━━━━━━━\n\n"
-f"⏱️ **Bypassed in:** {el} seconds\n\n"
-f"🙋 **Requested By :-** {message.from_user.first_name}\n"
-f"(#ID_{message.from_user.id})"
+        "✅ *GDFlix Extracted Links:*\n\n"
+        f"┎ *📚 Title:* {esc(t)}\n"
+        f"┠ *💾 Size:* {esc(s)}\n"
+        f"┠ *🔗 Instant DL:* [{ 'Click Here' if L['instantdl'] else 'Not Found' }]({esc(L['instantdl'])})\n"
+        f"┠ *🔗 Cloud Download:* [{ 'Click Here' if L['cloud_resume'] else 'Not Found' }]({esc(L['cloud_resume'])})\n"
+        f"┠ *🔗 Telegram File:* [{ 'Click Here' if L['telegram'] else 'Not Found' }]({esc(L['telegram'])})\n"
+        f"┠ *🔗 GoFile:* [{ 'Click Here' if L['gofile'] else 'Not Found' }]({esc(L['gofile'])})\n"
+        f"┠ *🔗 Pixeldrain:* [{ 'Click Here' if L['pixeldrain'] else 'Not Found' }]({esc(L['pixeldrain'])})\n"
+        f"┠ *🔗 Drivebot:* [{ 'Click Here' if L['drivebot'] else 'Not Found' }]({esc(L['drivebot'])})\n"
+        f"┖ *🔗 ZFile:* {esc(str(L['zfile']))}\n\n"
+        "━━━━━━━✦✗✦━━━━━━━\n\n"
+        f"⏱️ *Bypassed in:* `{round(time.time()-start,2)}s`\n\n"
+        f"🙋 *Requested By:* {esc(message.from_user.first_name)}\n"
+        f"(`ID_{message.from_user.id}`)"
     )
 
-    await message.reply(text, parse_mode="markdown")
+    await message.reply(text, parse_mode="markdown_v2")
