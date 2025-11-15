@@ -1,79 +1,168 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
-import aiohttp
+import requests
+import re
+import json
+from bs4 import BeautifulSoup
+import urllib.parse
 
-WORKER_URL = "https://gdflix.botzs.workers.dev/?url="
+# ------------------------------------------------------
+# 🔐 Allowed Groups
+# ------------------------------------------------------
+OFFICIAL_GROUPS = ["-1002311378229"]
 
-# ===== GD / GDFLIX COMMAND =====
+
+
+# ------------------------------------------------------
+# 🔥 GDFlix Scraper Function (FULL YOUR CODE, unchanged)
+# ------------------------------------------------------
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
+
+def fetch_html(url):
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        return r.text, r.url
+    except:
+        return "", url
+
+def scan(text, pattern):
+    m = re.search(pattern, text)
+    return m.group(0) if m else None
+
+def scan_all(text, pattern):
+    return re.findall(pattern, text)
+
+def try_zfile_fallback(final_url):
+    file_id = final_url.split("/file/")[-1]
+    if not file_id:
+        return None
+
+    folders = [
+        "2870627993","8213224819","7017347792","5011320428",
+        "5069651375","3279909168","9065812244","1234567890","1111111111"
+    ]
+
+    for folder in folders:
+        zurl = f"https://new7.gdflix.net/zfile/{folder}/{file_id}"
+        html, _ = fetch_html(zurl)
+        wz = scan(html, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
+        if wz:
+            return wz
+    return None
+
+
+def scrape_gdflix(url):
+    print("⏳ Fetching main page…")
+
+    html, final_url = fetch_html(url)
+    soup = BeautifulSoup(html, "html.parser")
+    text = html
+
+    pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
+    if pix:
+        pix = pix.replace("?embed", "")
+
+    # TELEGRAM LINKS -----------------------------------------------
+    tg_filesgram = scan(
+        text,
+        r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot"
+    )
+
+    tg_bot = scan(
+        text,
+        r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+"
+    )
+
+    tg_old = scan(
+        text,
+        r"https://t\.me/[A-Za-z0-9_/?=]+"
+    )
+
+    telegram_link = tg_filesgram or tg_bot or tg_old
+
+    result = {
+        "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
+        "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
+        "links": {
+            "instantdl": None,
+            "cloud_resume": None,
+            "pixeldrain": pix,
+            "telegram": telegram_link,
+            "drivebot": scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+"),
+            "zfile": [],
+            "gofile": None
+        },
+        "final_url": final_url
+    }
+
+    # INSTANTDL NEW
+    google = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
+    if google:
+        encoded = google.split("url=")[1]
+        decoded_google = urllib.parse.unquote(encoded)
+        result["links"]["cloud_resume"] = decoded_google
+
+    # INSTANTDL OLD
+    old_inst = scan(text, r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+")
+    if old_inst:
+        result["links"]["instantdl"] = old_inst
+
+    # ZFILE ---------------------------------------------------------
+    print("➡ Checking ZFILE…")
+    zfile_direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
+    if zfile_direct:
+        zhtml, _ = fetch_html(zfile_direct)
+        wz = scan(zhtml, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
+        if wz:
+            result["links"]["zfile"].append(wz)
+
+    if not result["links"]["zfile"]:
+        print("➡ Trying fallback ZFILE scan…")
+        fb = try_zfile_fallback(final_url)
+        if fb:
+            result["links"]["zfile"].append(fb)
+            print("✔ Fallback ZFILE found!")
+        else:
+            print("❌ No ZFILE worker found")
+
+    # GOFILE --------------------------------------------------------
+    validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
+    if validate:
+        print("➡ Checking GoFile validate…")
+        vh = requests.get(validate, headers=HEADERS).text
+        gf = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
+        result["links"]["gofile"] = gf
+
+    return result
+
+
+
+
+# ------------------------------------------------------
+# 🔥 PYROGRAM COMMAND (gd / gdflix)
+# ------------------------------------------------------
 @Client.on_message(filters.command(["gd", "gdflix"]))
-async def gd_scraper(_, message: Message):
-    # ------------------ Authorization Check ------------------
-    OFFICIAL_GROUPS = ["-1002311378229"]
+async def gdflix_command(client: Client, message: Message):
 
+    # Check group authorization
     if str(message.chat.id) not in OFFICIAL_GROUPS:
         await message.reply("❌ This command only works in our official group.")
         return
-    # ---------------------------------------------------------
 
-    # Validate links
-    if len(message.command) == 1:
-        return await message.reply_text(
-            "⚠️ Usage: `/gd <gdlink1> <gdlink2> ... (upto 5)`",
-            disable_web_page_preview=True
-        )
+    # Extract URL
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("⚠️ Usage:\n`/gd <gdflix link>`")
+        return
 
-    links = message.command[1:]  # all links after command
-    if len(links) > 5:
-        return await message.reply_text("⚠️ You can only send up to 5 links at once!")
+    url = parts[1]
 
-    final_output = ""
+    await message.reply("⏳ Scraping GDFlix…")
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            for idx, link in enumerate(links, start=1):
-                if not link.startswith("http"):
-                    final_output += f"\n❌ Link {idx} is invalid: {link}\n"
-                    continue
+    data = scrape_gdflix(url)
 
-                async with session.get(WORKER_URL + link) as resp:
-                    if resp.status != 200:
-                        final_output += f"\n❌ Error fetching Link {idx}: {link}\n"
-                        continue
-                    data = await resp.json()
+    formatted = json.dumps(data, indent=4)
 
-                title = data.get("title", "Unknown Title")
-                size = data.get("size", "Unknown Size")
-                links_data = data.get("links", {})
-
-                # Handle gofile (could be a list or string)
-                gofile_links = links_data.get("gofile", [])
-                if isinstance(gofile_links, str):
-                    gofile_text = f"[Click Here]({gofile_links})"
-                elif isinstance(gofile_links, list) and gofile_links:
-                    gofile_text = "\n".join(
-                        f"[Mirror {i+1}]({u})" for i, u in enumerate(gofile_links)
-                    )
-                else:
-                    gofile_text = "Not Found"
-
-                final_output += f"""
-📁 𝚃𝚒𝚝𝚕𝚎 {idx}
-{title}
-📦 𝚂𝚒𝚣𝚎 :- {size}
-
-⚡ INSTANT DL : [Click Here]({links_data.get('instantdl','')})
-☁️ CLOUD DOWNLOAD : [Click Here]({links_data.get('clouddl','')})
-📩 TELEGRAM FILE : [Click Here]({links_data.get('telegram','')})
-🗂 GOFILE : {gofile_text}
-📥 PIXELDRAIN : [Click Here]({links_data.get('pixeldrain','')})
-🤖 DRIVEBOT : [Click Here]({links_data.get('drivebot','')})
-⚡ INSTANTBOT : [Click Here]({links_data.get('instantbot','')})
-
-━━━━━━━━━━━━━━━━━━
-"""
-
-        final_output += "\n⚡ Powered By @AddaFiles 🚀"
-        await message.reply_text(final_output, disable_web_page_preview=True)
-
-    except Exception as e:
-        await message.reply_text(f"⚠️ Error: `{e}`")
+    await message.reply(f"```\n{formatted}\n```", parse_mode="markdown")
