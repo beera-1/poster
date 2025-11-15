@@ -8,14 +8,8 @@ from bs4 import BeautifulSoup
 import urllib.parse
 import time
 
-# ------------------------------------------------------
-# 🔐 Allowed Groups
-# ------------------------------------------------------
 OFFICIAL_GROUPS = ["-1002311378229"]
 
-# ------------------------------------------------------
-# 🔥 Scraper + helpers (kept logic from your working code)
-# ------------------------------------------------------
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 def fetch_html(url):
@@ -49,22 +43,19 @@ def try_zfile_fallback(final_url):
     return None
 
 def scrape_gdflix(url):
-    """Return dict with extracted links/info (fast HTTP-only scrape)."""
     html, final_url = fetch_html(url)
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
     pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
-    if pix:
-        pix = pix.replace("?embed", "")
+    if pix: pix = pix.replace("?embed", "")
 
-    # TELEGRAM LINK DETECTION (filesgram or gdflix bot links or fallback t.me)
     tg_filesgram = scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
-    tg_bot = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
-    tg_old = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
+    tg_bot       = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
+    tg_old       = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
     telegram_link = tg_filesgram or tg_bot or tg_old
 
-    result = {
+    data = {
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
         "instantdl": scan(text, r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+"),
@@ -77,157 +68,101 @@ def scrape_gdflix(url):
         "final_url": final_url
     }
 
-    # New instantdl format (googlevideo via fastcdn-dl)
     google = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if google:
-        try:
-            decoded = urllib.parse.unquote(google.split("url=")[1])
-            result["cloud_resume"] = decoded
-        except:
-            result["cloud_resume"] = None
+        data["cloud_resume"] = urllib.parse.unquote(google.split("url=")[1])
 
-    # Old instantdl
-    old_inst = scan(text, r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+")
-    if old_inst:
-        result["instantdl"] = old_inst
-
-    # zfile direct check
     zfile_direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
     if zfile_direct:
         zhtml, _ = fetch_html(zfile_direct)
         wz = scan(zhtml, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
         if wz:
-            result["zfile"].append(wz)
+            data["zfile"].append(wz)
 
-    # fallback zfile
-    if not result["zfile"]:
-        fb = try_zfile_fallback(result["final_url"])
+    if not data["zfile"]:
+        fb = try_zfile_fallback(final_url)
         if fb:
-            result["zfile"].append(fb)
+            data["zfile"].append(fb)
 
-    # gofile validate
     validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
     if validate:
         try:
             vh = requests.get(validate, headers=HEADERS, timeout=10).text
             gf = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
-            result["gofile"] = gf
+            data["gofile"] = gf
         except:
-            result["gofile"] = None
+            data["gofile"] = None
 
-    return result
+    return data
 
-# ------------------------------------------------------
-# Formatting helper
-# ------------------------------------------------------
-def format_bypass_message(data, requester_name, requester_id, elapsed):
-    # choose values and fallback text
-    title = data.get("title", "Unknown")
-    size = data.get("size", "Unknown")
-    instant = data.get("instantdl") or "Not Found"
-    cloud = data.get("cloud_resume") or "Not Found"
-    tg = data.get("telegram") or "Not Found"
-    gofile = data.get("gofile") or "Not Found"
-    pix = data.get("pixeldrain") or "Not Found"
-    drive = data.get("drivebot") or "Not Found"
-    zfile = data.get("zfile")[0] if data.get("zfile") else "Not Found"
 
-    # Build the pretty text (plain text to avoid parse_mode issues)
+# ---------------------------------------------------------
+# Format Final Message (bold user + ID like screenshot)
+# ---------------------------------------------------------
+def format_bypass_message(d, name, uid, elapsed):
+
     text = (
         "✅ GDFlix Extracted Links:\n\n"
-        "┎ 📚 Title:\n"
-        f"┃ {title}\n\n"
-        "┠ 💾 Size:\n"
-        f"┃ {size}\n\n"
-        "┠ 🔗 Instant DL:\n"
-        f"┃ {instant}\n\n"
-        "┠ 🔗 Cloud Download:\n"
-        f"┃ {cloud}\n\n"
-        "┠ 🔗 Telegram File:\n"
-        f"┃ {tg}\n\n"
-        "┠ 🔗 Gofile:\n"
-        f"┃ {gofile}\n\n"
-        "┠ 🔗 PixelDrain:\n"
-        f"┃ {pix}\n\n"
-        "┠ 🔗 Drivebot:\n"
-        f"┃ {drive}\n\n"
-        "┖ 🔗 ZFile:\n"
-        f"  {zfile}\n\n"
+        f"┎ 📚 Title:\n┃ {d['title']}\n\n"
+        f"┠ 💾 Size:\n┃ {d['size']}\n\n"
+        f"┠ 🔗 Instant DL:\n┃ {d['instantdl'] or 'Not Found'}\n\n"
+        f"┠ 🔗 Cloud Download:\n┃ {d['cloud_resume'] or 'Not Found'}\n\n"
+        f"┠ 🔗 Telegram File:\n┃ {d['telegram'] or 'Not Found'}\n\n"
+        f"┠ 🔗 GoFile:\n┃ {d['gofile'] or 'Not Found'}\n\n"
+        f"┠ 🔗 PixelDrain:\n┃ {d['pixeldrain'] or 'Not Found'}\n\n"
+        f"┠ 🔗 DriveBot:\n┃ {d['drivebot'] or 'Not Found'}\n\n"
+        f"┖ 🔗 ZFile:\n  {(d['zfile'][0] if d['zfile'] else 'Not Found')}\n\n"
         "━━━━━━━━✦✗✦━━━━━━━━\n\n"
         f"⏱️ Bypassed in {elapsed} seconds\n\n"
-        f"🙋 Requested By :- {requester_name} (#ID_{requester_id})"
+        f"🙋 Requested By :- {name} (#ID_{uid})"
     )
     return text
 
-# ------------------------------------------------------
-# URL extraction helper (from text)
-# ------------------------------------------------------
+
+# ---------------------------------------------------------
+# Extract URLs from message or reply
+# ---------------------------------------------------------
 URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_links_from_text(text):
     return URL_RE.findall(text or "")
 
-# ------------------------------------------------------
-# 🔥 PYROGRAM COMMAND — supports multiple links & reply
-# ------------------------------------------------------
+
+# ---------------------------------------------------------
+# COMMAND — Multiple links + reply-based
+# ---------------------------------------------------------
 @Client.on_message(filters.command(["gd", "gdflix"]))
-async def gdflix_command(client: Client, message: Message):
+async def gdflix_handler(client: Client, message: Message):
 
-    # Authorization
     if str(message.chat.id) not in OFFICIAL_GROUPS:
-        await message.reply("❌ This command only works in our official group.")
-        return
+        return await message.reply("❌ This command only works in our official group.")
 
-    # Gather links from command args
+    # extract from arguments
     parts = message.text.split()
-    links = []
+    links = extract_links_from_text(" ".join(parts[1:]))
 
-    # If command had arguments, extract URLs from them
-    if len(parts) > 1:
-        # join all args (so user can pass many links)
-        args_text = " ".join(parts[1:])
-        links = extract_links_from_text(args_text)
-
-    # If no links and the message is a reply, extract from replied message
+    # OR extract from replied message
     if not links and message.reply_to_message:
-        links = extract_links_from_text(message.reply_to_message.text or message.reply_to_message.caption or "")
+        links = extract_links_from_text(message.reply_to_message.text or "")
 
     if not links:
-        await message.reply("⚠️ Usage: `/gd <gdflix-link>`\nYou can pass multiple links (up to 8) or reply to a message that contains links.")
-        return
+        return await message.reply(
+            "⚠️ Usage: /gd <link1> <link2> ...\nOr reply to a message containing links."
+        )
 
-    # Limit to max 8 links
-    links = links[:8]
+    links = links[:8]  # max 8 links
 
-    requester_name = message.from_user.first_name or "Unknown"
+    requester_name = message.from_user.first_name
     requester_id = message.from_user.id
 
-    # Process each link and send a separate message
-    for idx, url in enumerate(links, start=1):
-        try:
-            # Send temporary "processing" message
-            processing_msg = await message.reply(f"⏳ ({idx}/{len(links)}) Bypassing: {url}")
+    for i, url in enumerate(links, 1):
 
-            start = time.time()
-            data = scrape_gdflix(url)
-            elapsed = round(time.time() - start, 2)
+        temp = await message.reply(f"⏳ ({i}/{len(links)}) Bypassing: {url}")
 
-            # For compatibility: if instantbot/instant server should be shown as zfile,
-            # you said 'instantbot replace that to zfile' — map if needed:
-            # (If your logic requires replacing some 'instantbot' field, add mapping here.)
-            # Keep as-is unless you want specific renames.
+        start = time.time()
+        data = scrape_gdflix(url)
+        elapsed = round(time.time() - start, 2)
 
-            final_text = format_bypass_message(data, requester_name, requester_id, elapsed)
+        final_text = format_bypass_message(data, requester_name, requester_id, elapsed)
 
-            # Edit the processing message into the final formatted result
-            await processing_msg.edit(final_text)
-
-        except Exception as e:
-            # If something goes wrong for this link, notify and continue
-            try:
-                await message.reply(f"❌ Error processing {url}:\n{e}")
-            except:
-                pass
-            continue
-
-# End of file
+        await temp.edit(final_text)
