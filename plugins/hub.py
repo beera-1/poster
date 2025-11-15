@@ -5,6 +5,26 @@ import re
 
 WORKER_URL = "https://hub-v2.botzs.workers.dev/"   # your worker
 
+# -------------------------
+# SAFE HUBCLOUD LINK EXTRACTOR
+# -------------------------
+def extract_hubcloud_links(text: str):
+    if not text:
+        return []
+
+    # Only match FULL valid HubCloud URLs:
+    # https://hubcloud.one/drive/xxxxxxxx
+    pattern = r"https?://hubcloud\.(one|fyi)/drive/[A-Za-z0-9]+"
+    links = re.findall(pattern, text)
+
+    # re.findall returns only the captured group (".one"), so fix this:
+    fixed_links = []
+    for match in re.finditer(pattern, text):
+        fixed_links.append(match.group(0))
+
+    return list(set(fixed_links))  # dedupe
+
+
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hubcloud_handler(client: Client, message: Message):
 
@@ -15,16 +35,22 @@ async def hubcloud_handler(client: Client, message: Message):
 
     hub_links = []
 
-    # Get links from command
+    # ------------------------
+    # Extract from command text
+    # ------------------------
     if len(message.command) > 1:
         raw = " ".join(message.command[1:])
-        hub_links.extend([u.strip() for u in raw.split() if "hubcloud." in u])
+        hub_links.extend(extract_hubcloud_links(raw))
 
-    # Get links from reply message
+    # ------------------------
+    # Extract from reply message
+    # ------------------------
     if message.reply_to_message:
-        tx = (message.reply_to_message.text or message.reply_to_message.caption or "")
-        reply_links = re.findall(r"https?://hubcloud\.(one|fyi)/drive/\S+", tx)
-        hub_links.extend(reply_links)
+        tx = message.reply_to_message.text or message.reply_to_message.caption or ""
+        hub_links.extend(extract_hubcloud_links(tx))
+
+    # Dedupe
+    hub_links = list(set(hub_links))
 
     if not hub_links:
         return await message.reply(
@@ -35,6 +61,9 @@ async def hubcloud_handler(client: Client, message: Message):
 
     status = await message.reply_text("🔍 Fetching all links...")
 
+    # ------------------------
+    # Contact the worker
+    # ------------------------
     try:
         async with aiohttp.ClientSession() as session:
             params = {"url": ",".join(hub_links)}
@@ -44,10 +73,9 @@ async def hubcloud_handler(client: Client, message: Message):
     except Exception as e:
         return await status.edit(f"⚠️ Error contacting Worker:\n`{e}`")
 
-    # ---------------------------
-    # FORMAT WORKER TEXT OUTPUT
-    # ---------------------------
-
+    # ------------------------
+    # Format Worker Output
+    # ------------------------
     final = "🟢 **HubCloud Multi-Extract Result**\n\n"
     blocks = result_text.strip().split("--------------------------------------")
 
@@ -58,10 +86,10 @@ async def hubcloud_handler(client: Client, message: Message):
 
         lines = b.split("\n")
 
-        # File Info (🎬 Name, 📦 Size, 🔗 Link)
+        # File Info (Line 0 = Title, 1 = Size, 2 = Original Link)
         final += "\n".join(lines[:3]) + "\n\n"
 
-        # All mirrors after file info
+        # Start parsing mirrors
         mirror_lines = lines[3:]
 
         label = None
@@ -70,18 +98,25 @@ async def hubcloud_handler(client: Client, message: Message):
             if not ln:
                 continue
 
-            # Detect label (FSL, pixelserver, mega etc)
+            # ------------------------
+            # If this is a LABEL
+            # ------------------------
             if not ln.startswith("http"):
-                label = ln  
-                icon = "🔵" if "fsl" in ln.lower() \
-                    else "🟠" if "10gb" in ln.lower() \
-                    else "🟢" if "pixel" in ln.lower() \
-                    else "🟥" if "mega" in ln.lower() \
-                    else "🟣" if "zip" in ln.lower() \
+                label = ln
+
+                icon = (
+                    "🔵" if "fsl" in ln.lower()
+                    else "🟠" if "10gb" in ln.lower()
+                    else "🟢" if "pixel" in ln.lower()
+                    else "🟥" if "mega" in ln.lower()
+                    else "🟣" if "zip" in ln.lower()
                     else "⚪"
+                )
                 continue
 
-            # URL line
+            # ------------------------
+            # If this is a URL
+            # ------------------------
             final += f"**{icon} {label}**\n{ln}\n\n"
 
         final += "\n"
