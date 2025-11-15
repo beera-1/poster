@@ -12,6 +12,38 @@ OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
+# ========================= NEW GOOGLE LINK FETCHER =========================
+
+def get_instantdl(gd_url):
+    try:
+        r = requests.get(gd_url, headers=HEADERS, timeout=15)
+    except:
+        return None
+
+    match = re.search(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+", r.text)
+    return match.group(0) if match else None
+
+
+def get_google_from_instant(instant_url):
+    try:
+        r = requests.get(instant_url, headers=HEADERS, allow_redirects=True, timeout=20)
+    except:
+        return None
+
+    final = r.url
+
+    # 1️⃣ Direct Google Link
+    if "video-downloads.googleusercontent.com" in final:
+        return final
+
+    # 2️⃣ FastCDN → extract only the google link
+    if "fastcdn-dl.pages.dev" in final and "url=" in final:
+        pure = final.split("url=")[-1]
+        return pure
+
+    return None
+
+
 # ========================= HELPERS =========================
 
 def fetch_html(url):
@@ -26,39 +58,6 @@ def scan(text, pattern):
     m = re.search(pattern, text)
     return m.group(0) if m else None
 
-
-# ========================= INSTANTDL → GOOGLE LINK =========================
-
-def get_instantdl_link(html):
-    """Extract InstantDL link from GDFlix page"""
-    return scan(html, r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+")    
-
-
-def get_final_google_link(instant_url):
-    """Follow redirects → return googleusercontent direct link"""
-    if not instant_url:
-        return None
-
-    try:
-        r = requests.get(instant_url, headers=HEADERS, allow_redirects=True, timeout=20)
-    except:
-        return None
-
-    final = r.url
-
-    # direct Google video link
-    if "video-downloads.googleusercontent.com" in final:
-        return final
-
-    # sometimes final contains FastCDN wrapper
-    if "fastcdn-dl.pages.dev" in final and "url=" in final:
-        return final.split("url=")[-1]
-
-    return None
-
-
-
-# ========================= ZFILE FALLBACK =========================
 
 def try_zfile_fallback(final_url):
     file_id = final_url.split("/file/")[-1]
@@ -78,24 +77,22 @@ def try_zfile_fallback(final_url):
     return None
 
 
-
 # ========================= SCRAPER =========================
 def scrape_gdflix(url):
-
     html, final_url = fetch_html(url)
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
-    # ----------- InstantDL → Google -----------
-    instantdl = get_instantdl_link(text)
-    google_video = get_final_google_link(instantdl)
+    # Extract new InstantDL link
+    instantdl = get_instantdl(url)
 
-    # PixelDrain
+    # Fetch pure Google URL
+    google_video = get_google_from_instant(instantdl) if instantdl else None
+
     pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
     if pix:
         pix = pix.replace("?embed", "")
 
-    # Telegram
     tg1 = scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
     tg2 = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
     tg3 = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
@@ -105,7 +102,7 @@ def scrape_gdflix(url):
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
 
-        # REPLACED — show Google link instead of InstantDL
+        # REPLACE INSTANTDL WITH PURE GOOGLE LINK
         "instantdl": google_video or "Not Found",
 
         "cloud_resume": None,
@@ -117,12 +114,12 @@ def scrape_gdflix(url):
         "final_url": final_url
     }
 
-    # Cloud Download
+    # Cloud download (keep original)
     fast = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if fast:
         data["cloud_resume"] = urllib.parse.unquote(fast.split("url=")[1])
 
-    # Zfile
+    # ZFILE
     direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
     if direct:
         zhtml, _ = fetch_html(direct)
@@ -148,7 +145,6 @@ def scrape_gdflix(url):
     return data
 
 
-
 # ========================= FORMAT MESSAGE =========================
 
 def format_bypass_message(d, name, uid, elapsed):
@@ -161,7 +157,7 @@ def format_bypass_message(d, name, uid, elapsed):
         f"┠ 💾 **Size:**\n"
         f"┃ {d['size']}\n\n"
 
-        f"┠ 🔗 **Google Video Link:**\n"
+        f"┠ 🔗 **Google Video (InstantDL):**\n"
         f"┃ {d['instantdl']}\n\n"
 
         f"┠ 🔗 **Cloud Download:**\n"
@@ -189,14 +185,12 @@ def format_bypass_message(d, name, uid, elapsed):
     return text
 
 
-
 # ========================= URL EXTRACTOR =========================
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_links_from_text(text):
     return URL_RE.findall(text or "")
-
 
 
 # ========================= MAIN COMMAND =========================
@@ -216,12 +210,11 @@ async def gdflix_handler(client: Client, message: Message):
     if not links:
         return await message.reply("⚠️ Usage: /gd <link1> <link2> … OR reply to a message containing links.")
 
-    links = links[:8]
+    links = links[:8]  # limit
 
     requester_name = message.from_user.first_name
     requester_id = message.from_user.id
 
-    # Process 1-by-1
     for i, url in enumerate(links, 1):
         temp = await message.reply(f"⏳ ({i}/{len(links)}) Bypassing: {url}")
 
@@ -230,5 +223,4 @@ async def gdflix_handler(client: Client, message: Message):
         elapsed = round(time.time() - start, 2)
 
         formatted = format_bypass_message(data, requester_name, requester_id, elapsed)
-
         await temp.edit(formatted)
