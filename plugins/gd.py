@@ -6,6 +6,7 @@ import json
 from bs4 import BeautifulSoup
 import urllib.parse
 import time
+import asyncio
 
 OFFICIAL_GROUPS = ["-1002311378229"]
 
@@ -26,7 +27,8 @@ def try_zfile_fallback(final_url):
     file_id = final_url.split("/file/")[-1]
     folders = [
         "2870627993","8213224819","7017347792","5011320428",
-        "5069651375","3279909168","9065812244","1234567890","1111111111","8841111600"
+        "5069651375","3279909168","9065812244","1234567890",
+        "1111111111","8841111600"
     ]
     for folder in folders:
         zurl = f"https://new7.gdflix.net/zfile/{folder}/{file_id}"
@@ -42,13 +44,11 @@ def scrape_gdflix(url):
     text = html
 
     pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
-    if pix:
-        pix = pix.replace("?embed", "")
+    if pix: pix = pix.replace("?embed", "")
 
     tg_filesgram = scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
     tg_bot       = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
     tg_old       = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
-
     telegram_link = tg_filesgram or tg_bot or tg_old
 
     result = {
@@ -88,9 +88,8 @@ def scrape_gdflix(url):
     return result
 
 
-
 # -------------------------------------------------------------------
-# 🔥 PYROGRAM COMMAND — NO PARSE MODE USED (SAFE)
+# 🔥 PYROGRAM COMMAND — FULL PROGRESS BAR + PERFECT FORMATTING
 # -------------------------------------------------------------------
 @Client.on_message(filters.command(["gd", "gdflix"]))
 async def gdflix_command(client: Client, message: Message):
@@ -105,9 +104,17 @@ async def gdflix_command(client: Client, message: Message):
         return
 
     url = parts[1]
-    start = time.time()
 
-    await message.reply("⏳ Scraping GDFlix…")
+    # INITIAL PROGRESS MESSAGE
+    progress_msg = await message.reply("Bypassing :- 0% 「▱▱▱▱▱▱▱▱▱▱」")
+
+    # Animate progress
+    for i in range(1, 11):
+        bar = "▰" * i + "▱" * (10 - i)
+        await asyncio.sleep(0.12)
+        await progress_msg.edit(f"Bypassing :- {i*10}% 「{bar}」")
+
+    start = time.time()
 
     data = scrape_gdflix(url)
 
@@ -122,50 +129,48 @@ async def gdflix_command(client: Client, message: Message):
     drive = data["drivebot"] or "Not Found"
     zfile = data["zfile"][0] if data["zfile"] else "Not Found"
 
-    # User info
+    # USER INFO
     user = message.from_user.first_name
     uid = message.from_user.id
 
     end = round(time.time() - start, 2)
 
-    # -------------------------------------------------------------------
-    # FINAL TEXT (NO MARKDOWN/HTML → 100% SAFE)
-    # -------------------------------------------------------------------
-    text = f"""
-✅ GDFlix Extracted Links:
+    # FINAL MESSAGE — NO PARSE MODE, FULLY SAFE
+    final_text = f"""
+✅ 𝗚𝗗𝗙𝗹𝗶𝘅 𝗘𝘅𝘁𝗿𝗮𝗰𝘁𝗲𝗱 𝗟𝗶𝗻𝗸𝘀:
 
-┎ 📚 Title:
+┎ 📚 𝗧𝗶𝘁𝗹𝗲:
 ┃ {title}
 
-┠ 💾 Size:
+┠ 💾 𝗦𝗶𝘇𝗲:
 ┃ {size}
 
-┠ 🔗 Instant DL:
+┠ 🔗 𝗜𝗻𝘀𝘁𝗮𝗻𝘁 𝗗𝗟:
 ┃ {instantdl}
 
-┠ 🔗 Cloud Download:
+┠ 🔗 𝗖𝗹𝗼𝘂𝗱 𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱:
 ┃ {cloud}
 
-┠ 🔗 Telegram File:
+┠ 🔗 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗺 𝗙𝗶𝗹𝗲:
 ┃ {tg}
 
-┠ 🔗 GoFile:
+┠ 🔗 𝗚𝗼𝗙𝗶𝗹𝗲:
 ┃ {gofile}
 
-┠ 🔗 PixelDrain:
+┠ 🔗 𝗣𝗶𝘅𝗲𝗹𝗗𝗿𝗮𝗶𝗻:
 ┃ {pix}
 
-┠ 🔗 DriveBot:
+┠ 🔗 𝗗𝗿𝗶𝘃𝗲𝗕𝗼𝘁:
 ┃ {drive}
 
-┖ 🔗 ZFile:
+┖ 🔗 𝗭𝗙𝗶𝗹𝗲:
   {zfile}
 
 ━━━━━━━━✦✗✦━━━━━━━━
 
-⏱️ Bypassed in {end} seconds
+⏱️ 𝗕𝘆𝗽𝗮𝘀𝘀𝗲𝗱 𝗶𝗻 {end} 𝘀𝗲𝗰𝗼𝗻𝗱𝘀
 
-🙋 Requested By: {user} (ID: {uid})
+🙋 **Requested By :-** {user} **(#ID_{uid})**
 """
 
-    await message.reply(text)
+    await progress_msg.edit(final_text)
