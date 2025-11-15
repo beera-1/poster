@@ -3,75 +3,87 @@ from pyrogram.types import Message
 import aiohttp
 import re
 
-# Your Cloudflare Worker API
-WORKER_URL = "https://hub-v2.botzs.workers.dev/"
+WORKER_URL = "https://hub-v2.botzs.workers.dev/"   # your worker
 
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hubcloud_handler(client: Client, message: Message):
 
     OFFICIAL_GROUPS = ["-1002311378229"]
     if str(message.chat.id) not in OFFICIAL_GROUPS:
-        await message.reply("❌ This command only works in our official group.")
+        await message.reply("❌ This command only works in the official group.")
         return
 
-    hubcloud_urls = []
+    hub_links = []
 
-    # Direct links in the command
+    # Get links from command
     if len(message.command) > 1:
         raw = " ".join(message.command[1:])
-        hubcloud_urls.extend(
-            [u.strip() for u in raw.replace("\n", " ").replace(",", " ").split() if u.strip()]
-        )
+        hub_links.extend([u.strip() for u in raw.split() if "hubcloud." in u])
 
-    # Reply message with HubCloud links
+    # Get links from reply message
     if message.reply_to_message:
-        reply_text = message.reply_to_message.text or message.reply_to_message.caption or ""
-        found = re.findall(r"https?://hubcloud\.(one|fyi)/\S+", reply_text)
-        hubcloud_urls.extend(found)
+        tx = (message.reply_to_message.text or message.reply_to_message.caption or "")
+        reply_links = re.findall(r"https?://hubcloud\.(one|fyi)/drive/\S+", tx)
+        hub_links.extend(reply_links)
 
-    if not hubcloud_urls:
-        await message.reply_text(
-            "❌ No HubCloud links found.\n\nUsage:\n`/hub <hubcloud_url>`\nOR reply to a message."
+    if not hub_links:
+        return await message.reply(
+            "❌ No HubCloud links found.\n\n"
+            "Usage: `/hub <hubcloud link>`\n"
+            "Or reply to a message containing HubCloud links."
         )
-        return
 
-    wait = await message.reply_text("🔍 Fetching links from Worker...")
+    status = await message.reply_text("🔍 Fetching all links...")
 
     try:
         async with aiohttp.ClientSession() as session:
-            params = {"url": ",".join(hubcloud_urls)}
-            async with session.get(WORKER_URL, params=params, timeout=90) as resp:
-                worker_text = await resp.text()
-
-        # Worker returns plain text, NOT JSON now
-        raw = worker_text.strip().split("\n\n")
-
-        text = "🟢 **HubCloud Extracted Links**\n\n"
-
-        for block in raw:
-            if not block.strip():
-                continue
-            lines = block.split("\n", 1)
-            if len(lines) == 2:
-                label = lines[0].strip()
-                link = lines[1].strip()
-
-                if label.lower() == "fsl":
-                    icon = "🔵"
-                elif label.lower() == "10gb title":
-                    icon = "🟠"
-                elif label.lower() == "pixelserver":
-                    icon = "🟢"
-                elif label.lower() == "mega server":
-                    icon = "🟥"
-                elif label.lower() == "zipdiskserver":
-                    icon = "🟣"
-                else:
-                    icon = "🔗"
-
-                text += f"**{icon} {label}**\n{link}\n\n"
-
-        await wait.edit_text(text, disable_web_page_preview=True)
+            params = {"url": ",".join(hub_links)}
+            async with session.get(WORKER_URL, params=params, timeout=120) as resp:
+                result_text = await resp.text()
 
     except Exception as e:
-        await wait.edit_text(f"⚠️ Error:\n`{e}`")
+        return await status.edit(f"⚠️ Error contacting Worker:\n`{e}`")
+
+    # ---------------------------
+    # FORMAT WORKER TEXT OUTPUT
+    # ---------------------------
+
+    final = "🟢 **HubCloud Multi-Extract Result**\n\n"
+    blocks = result_text.strip().split("--------------------------------------")
+
+    for block in blocks:
+        b = block.strip()
+        if not b:
+            continue
+
+        lines = b.split("\n")
+
+        # File Info (🎬 Name, 📦 Size, 🔗 Link)
+        final += "\n".join(lines[:3]) + "\n\n"
+
+        # All mirrors after file info
+        mirror_lines = lines[3:]
+
+        label = None
+        for ln in mirror_lines:
+            ln = ln.strip()
+            if not ln:
+                continue
+
+            # Detect label (FSL, pixelserver, mega etc)
+            if not ln.startswith("http"):
+                label = ln  
+                icon = "🔵" if "fsl" in ln.lower() \
+                    else "🟠" if "10gb" in ln.lower() \
+                    else "🟢" if "pixel" in ln.lower() \
+                    else "🟥" if "mega" in ln.lower() \
+                    else "🟣" if "zip" in ln.lower() \
+                    else "⚪"
+                continue
+
+            # URL line
+            final += f"**{icon} {label}**\n{ln}\n\n"
+
+        final += "\n"
+
+    await status.edit(final, disable_web_page_preview=True)
