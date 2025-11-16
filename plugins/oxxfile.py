@@ -24,8 +24,7 @@ async def cinevood_scraper(client: Client, message: Message):
     page_url = message.command[1]
     api_url = CINEVOOD_WORKER + page_url
 
-    # Fetch JSON from worker
-    await message.reply("⏳ Fetching CineVood links...")
+    loading = await message.reply("⏳ Fetching CineVood links...")
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -33,12 +32,12 @@ async def cinevood_scraper(client: Client, message: Message):
                 data = await resp.json()
 
     except Exception as e:
-        await message.reply(f"❌ Error fetching data:\n`{e}`", parse_mode="markdown")
+        await loading.edit(f"❌ Error fetching data:\n`{e}`", parse_mode="markdown")
         return
 
     # Worker error check
     if not data.get("ok"):
-        await message.reply("❌ Worker error occurred.")
+        await loading.edit("❌ Worker error occurred.")
         return
 
     # Build Output Message
@@ -46,18 +45,27 @@ async def cinevood_scraper(client: Client, message: Message):
     files = data.get("files", [])
 
     if not files:
-        await message.reply("❌ No OxxFile links found.")
+        await loading.edit("❌ No OxxFile links found.")
         return
 
-    text = f"🎬 **{title}**\n\n"
+    # ---------------------------
+    # FINAL OUTPUT FORMAT (Screenshot Style)
+    # ---------------------------
+    text = f"≡ ***{title}***\n\n"
 
-    for f in files:
+    for i, f in enumerate(files, start=1):
         name = f.get("name", "Unknown")
         size = f.get("size", "Unknown")
         oxx = f.get("oxx_link")
 
-        text += f"📁 **{name}**\n"
-        text += f"📦 Size: `{size}`\n"
-        text += f"🔗 Link: {oxx}\n\n"
+        text += f"**{i}.** {name} `{size}`\n"
+        text += f"╰ **Links :** ☁️[**OxxFile**]({oxx})\n\n"
 
-    await message.reply(text, parse_mode=ParseMode.MARKDOWN)
+    text += "━━━━━━━━━━━━ ✦ ✧ ✦ ━━━━━━━━━━━━\n\n"
+
+    # ---- ONLY THIS PART ADDED (NO OTHER CHANGES) ----
+    text += f"<b>Requested By :-</b> {message.from_user.mention}\n\n"
+    text += f"<b>(#ID_{message.from_user.id})</b>"
+    # -------------------------------------------------
+
+    await loading.edit(text, parse_mode=ParseMode.HTML)
