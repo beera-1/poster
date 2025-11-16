@@ -12,20 +12,15 @@ OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
-
 # ========================= NEW GOOGLE LINK FETCHER =========================
 
 def clean_google_link(link):
-    """Remove fastcdn prefix if exists."""
     if not link:
         return None
-    # Remove fastcdn prefix
-    link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
-    return link
+    return re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
 
 
 def format_href(link):
-    """Format link with <a href> and display 𝗟𝗜𝗡𝗞"""
     if not link:
         return "Not Found"
     return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
@@ -41,10 +36,10 @@ def get_instantdl(gd_url):
     return match.group(0) if match else None
 
 
-
 def get_google_from_instant(instant_url):
     if not instant_url:
         return None
+
     try:
         r = requests.get(instant_url, headers=HEADERS, allow_redirects=True, timeout=20)
     except:
@@ -52,18 +47,15 @@ def get_google_from_instant(instant_url):
 
     final = r.url
 
-    # 1️⃣ Direct Google Link
     if "video-downloads.googleusercontent.com" in final:
         return clean_google_link(final)
 
-    # 2️⃣ FastCDN → extract ONLY google link
     if "fastcdn-dl.pages.dev" in final and "url=" in final:
         pure = final.split("url=")[-1]
         if "video-downloads.googleusercontent.com" in pure:
             return clean_google_link(pure)
 
     return None
-
 
 
 # ========================= HELPERS =========================
@@ -81,7 +73,6 @@ def scan(text, pattern):
     return m.group(0) if m else None
 
 
-
 def try_zfile_fallback(final_url):
     file_id = final_url.split("/file/")[-1]
 
@@ -97,8 +88,8 @@ def try_zfile_fallback(final_url):
         found = scan(html, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
         if found:
             return found
-    return None
 
+    return None
 
 
 # ========================= SCRAPER =========================
@@ -108,7 +99,6 @@ def scrape_gdflix(url):
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
-    # NEW: Extract real Google link
     instantdl = get_instantdl(url)
     google_video = get_google_from_instant(instantdl)
 
@@ -128,15 +118,16 @@ def scrape_gdflix(url):
         "instantdl": format_href(google_video),
     }
 
-    # ===== CLEAN CLOUD DOWNLOAD LINK (remove fastcdn wrapper) =====
+    # ================== FINAL FIXED CLOUD DOWNLOAD CLEANER ===================
     cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if cloud_raw:
+        # Remove wrapper
         cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
         cleaned_cloud = urllib.parse.unquote(cleaned_cloud)
         data["cloud_resume"] = format_href(cleaned_cloud)
     else:
         data["cloud_resume"] = None
-    # ===============================================================
+    # ========================================================================
 
     data.update({
         "pixeldrain": format_href(pix),
@@ -171,7 +162,6 @@ def scrape_gdflix(url):
             pass
 
     return data
-
 
 
 # ========================= FORMAT MESSAGE =========================
@@ -216,14 +206,12 @@ def format_bypass_message(d, message, elapsed):
     return text
 
 
-
 # ========================= URL EXTRACTOR =========================
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_links_from_text(text):
     return URL_RE.findall(text or "")
-
 
 
 # ========================= MAIN COMMAND =========================
