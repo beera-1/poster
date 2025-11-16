@@ -12,7 +12,24 @@ OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
+
 # ========================= NEW GOOGLE LINK FETCHER =========================
+
+def clean_google_link(link):
+    """Remove fastcdn prefix if exists."""
+    if not link:
+        return None
+    # Remove fastcdn prefix
+    link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
+    return link
+
+
+def format_href(link):
+    """Format link with <a href> and display 𝗟𝗜𝗡𝗞"""
+    if not link:
+        return "Not Found"
+    return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
+
 
 def get_instantdl(gd_url):
     try:
@@ -22,6 +39,7 @@ def get_instantdl(gd_url):
 
     match = re.search(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+", r.text)
     return match.group(0) if match else None
+
 
 
 def get_google_from_instant(instant_url):
@@ -36,15 +54,16 @@ def get_google_from_instant(instant_url):
 
     # 1️⃣ Direct Google Link
     if "video-downloads.googleusercontent.com" in final:
-        return final
+        return clean_google_link(final)
 
     # 2️⃣ FastCDN → extract ONLY google link
     if "fastcdn-dl.pages.dev" in final and "url=" in final:
         pure = final.split("url=")[-1]
         if "video-downloads.googleusercontent.com" in pure:
-            return pure
+            return clean_google_link(pure)
 
     return None
+
 
 
 # ========================= HELPERS =========================
@@ -60,6 +79,7 @@ def fetch_html(url):
 def scan(text, pattern):
     m = re.search(pattern, text)
     return m.group(0) if m else None
+
 
 
 def try_zfile_fallback(final_url):
@@ -80,7 +100,9 @@ def try_zfile_fallback(final_url):
     return None
 
 
+
 # ========================= SCRAPER =========================
+
 def scrape_gdflix(url):
     html, final_url = fetch_html(url)
     soup = BeautifulSoup(html, "html.parser")
@@ -103,22 +125,18 @@ def scrape_gdflix(url):
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
 
-        # REPLACE INSTANTDL WITH PURE GOOGLE LINK
-        "instantdl": google_video or "Not Found",
+        # Replace with CLEAN GOOGLE LINK + make it <a href>
+        "instantdl": format_href(google_video),
 
-        "cloud_resume": None,
-        "pixeldrain": pix,
-        "telegram": telegram_link,
-        "drivebot": scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+"),
+        "cloud_resume": format_href(urllib.parse.unquote(scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+"))) if scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+") else None,
+
+        "pixeldrain": format_href(pix),
+        "telegram": format_href(telegram_link),
+        "drivebot": format_href(scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+")),
         "zfile": [],
-        "gofile": None,
+        "gofile": format_href(None),
         "final_url": final_url
     }
-
-    # Cloud download (keep original)
-    fast = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
-    if fast:
-        data["cloud_resume"] = urllib.parse.unquote(fast.split("url=")[1])
 
     # ZFILE
     direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
@@ -126,12 +144,12 @@ def scrape_gdflix(url):
         zhtml, _ = fetch_html(direct)
         found = scan(zhtml, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
         if found:
-            data["zfile"].append(found)
+            data["zfile"].append(format_href(found))
 
     if not data["zfile"]:
         fb = try_zfile_fallback(final_url)
         if fb:
-            data["zfile"].append(fb)
+            data["zfile"].append(format_href(fb))
 
     # GoFile
     validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
@@ -139,11 +157,12 @@ def scrape_gdflix(url):
         try:
             vh = requests.get(validate, headers=HEADERS).text
             gf = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
-            data["gofile"] = gf
+            data["gofile"] = format_href(gf)
         except:
             pass
 
     return data
+
 
 
 # ========================= FORMAT MESSAGE =========================
@@ -188,12 +207,14 @@ def format_bypass_message(d, message, elapsed):
     return text
 
 
+
 # ========================= URL EXTRACTOR =========================
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_links_from_text(text):
     return URL_RE.findall(text or "")
+
 
 
 # ========================= MAIN COMMAND =========================
