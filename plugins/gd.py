@@ -19,13 +19,11 @@ def clean_google_link(link):
     """Remove fastcdn prefix if exists."""
     if not link:
         return None
-    # Remove fastcdn prefix
     link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
     return link
 
 
 def format_href(link):
-    """Format link with <a href> and display 𝗟𝗜𝗡𝗞"""
     if not link:
         return "Not Found"
     return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
@@ -52,11 +50,9 @@ def get_google_from_instant(instant_url):
 
     final = r.url
 
-    # 1️⃣ Direct Google Link
     if "video-downloads.googleusercontent.com" in final:
         return clean_google_link(final)
 
-    # 2️⃣ FastCDN → extract ONLY google link
     if "fastcdn-dl.pages.dev" in final and "url=" in final:
         pure = final.split("url=")[-1]
         if "video-downloads.googleusercontent.com" in pure:
@@ -108,7 +104,6 @@ def scrape_gdflix(url):
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
-    # NEW: Extract real Google link
     instantdl = get_instantdl(url)
     google_video = get_google_from_instant(instantdl)
 
@@ -121,33 +116,27 @@ def scrape_gdflix(url):
     tg3 = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
     telegram_link = tg1 or tg2 or tg3
 
+    # ---------- FIXED CLOUDRESUME ----------
+    cr = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
+    if cr:
+        cr = re.sub(r"^https://fastcdn-dl\.pages\.dev/\?url=", "", cr)  # REMOVE PREFIX
+    # --------------------------------------
+
     data = {
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
 
         "instantdl": format_href(google_video),
-    }
+        "cloud_resume": format_href(cr) if cr else None,
 
-    # ===== CLEAN CLOUD DOWNLOAD LINK (remove fastcdn wrapper) =====
-    cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
-    if cloud_raw:
-        cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
-        cleaned_cloud = urllib.parse.unquote(cleaned_cloud)
-        data["cloud_resume"] = format_href(cleaned_cloud)
-    else:
-        data["cloud_resume"] = None
-    # ===============================================================
-
-    data.update({
         "pixeldrain": format_href(pix),
         "telegram": format_href(telegram_link),
         "drivebot": format_href(scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+")),
         "zfile": [],
         "gofile": format_href(None),
         "final_url": final_url
-    })
+    }
 
-    # ZFILE
     direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
     if direct:
         zhtml, _ = fetch_html(direct)
@@ -160,7 +149,6 @@ def scrape_gdflix(url):
         if fb:
             data["zfile"].append(format_href(fb))
 
-    # GoFile
     validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
     if validate:
         try:
