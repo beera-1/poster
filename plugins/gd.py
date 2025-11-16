@@ -125,18 +125,27 @@ def scrape_gdflix(url):
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
 
-        # Replace with CLEAN GOOGLE LINK + make it <a href>
         "instantdl": format_href(google_video),
+    }
 
-        "cloud_resume": format_href(urllib.parse.unquote(scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+"))) if scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+") else None,
+    # ===== CLEAN CLOUD DOWNLOAD LINK (remove fastcdn wrapper) =====
+    cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
+    if cloud_raw:
+        cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
+        cleaned_cloud = urllib.parse.unquote(cleaned_cloud)
+        data["cloud_resume"] = format_href(cleaned_cloud)
+    else:
+        data["cloud_resume"] = None
+    # ===============================================================
 
+    data.update({
         "pixeldrain": format_href(pix),
         "telegram": format_href(telegram_link),
         "drivebot": format_href(scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+")),
         "zfile": [],
         "gofile": format_href(None),
         "final_url": final_url
-    }
+    })
 
     # ZFILE
     direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
