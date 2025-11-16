@@ -6,49 +6,40 @@ import re
 from bs4 import BeautifulSoup
 import urllib.parse
 import time
-import asyncio
-from pyrogram.errors import RPCError, FloodWait, MessageNotModified
 
 OFFICIAL_GROUPS = ["-1002311378229"]
+
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
-# ========================= HELPERS =========================
+
+# ========================= NEW GOOGLE LINK FETCHER =========================
 
 def clean_google_link(link):
+    """Remove fastcdn prefix if exists."""
     if not link:
         return None
-    return re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
+    # Remove fastcdn prefix
+    link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
+    return link
 
 
 def format_href(link):
+    """Format link with <a href> and display 𝗟𝗜𝗡𝗞"""
     if not link:
         return "Not Found"
     return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
 
-
-def scan(text, pattern):
-    m = re.search(pattern, text)
-    return m.group(0) if m else None
-
-
-def fetch_html(url):
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        return r.text, r.url
-    except:
-        return "", url
-
-
-# ========================= SCRAPER =========================
 
 def get_instantdl(gd_url):
     try:
         r = requests.get(gd_url, headers=HEADERS, timeout=15)
     except:
         return None
-    m = re.search(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+", r.text)
-    return m.group(0) if m else None
+
+    match = re.search(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+", r.text)
+    return match.group(0) if match else None
+
 
 
 def get_google_from_instant(instant_url):
@@ -61,15 +52,34 @@ def get_google_from_instant(instant_url):
 
     final = r.url
 
+    # 1️⃣ Direct Google Link
     if "video-downloads.googleusercontent.com" in final:
         return clean_google_link(final)
 
+    # 2️⃣ FastCDN → extract ONLY google link
     if "fastcdn-dl.pages.dev" in final and "url=" in final:
         pure = final.split("url=")[-1]
         if "video-downloads.googleusercontent.com" in pure:
             return clean_google_link(pure)
 
     return None
+
+
+
+# ========================= HELPERS =========================
+
+def fetch_html(url):
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        return r.text, r.url
+    except:
+        return "", url
+
+
+def scan(text, pattern):
+    m = re.search(pattern, text)
+    return m.group(0) if m else None
+
 
 
 def try_zfile_fallback(final_url):
@@ -90,11 +100,15 @@ def try_zfile_fallback(final_url):
     return None
 
 
+
+# ========================= SCRAPER =========================
+
 def scrape_gdflix(url):
     html, final_url = fetch_html(url)
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
+    # NEW: Extract real Google link
     instantdl = get_instantdl(url)
     google_video = get_google_from_instant(instantdl)
 
@@ -102,26 +116,27 @@ def scrape_gdflix(url):
     if pix:
         pix = pix.replace("?embed", "")
 
-    telegram_link = (
-        scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
-        or scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
-        or scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
-    )
+    tg1 = scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
+    tg2 = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
+    tg3 = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
+    telegram_link = tg1 or tg2 or tg3
 
     data = {
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
+
         "instantdl": format_href(google_video),
     }
 
-    # 🟢 CLOUD DOWNLOAD FIX (remove fastcdn wrapper)
+    # ===== CLEAN CLOUD DOWNLOAD LINK (remove fastcdn wrapper) =====
     cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if cloud_raw:
-        cleaned = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
-        cleaned = urllib.parse.unquote(cleaned)
-        data["cloud_resume"] = format_href(cleaned)
+        cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
+        cleaned_cloud = urllib.parse.unquote(cleaned_cloud)
+        data["cloud_resume"] = format_href(cleaned_cloud)
     else:
         data["cloud_resume"] = None
+    # ===============================================================
 
     data.update({
         "pixeldrain": format_href(pix),
@@ -145,11 +160,11 @@ def scrape_gdflix(url):
         if fb:
             data["zfile"].append(format_href(fb))
 
-    # GOFILE
+    # GoFile
     validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
     if validate:
         try:
-            vh = requests.get(validate, headers=HEADERS, timeout=10).text
+            vh = requests.get(validate, headers=HEADERS).text
             gf = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
             data["gofile"] = format_href(gf)
         except:
@@ -158,63 +173,48 @@ def scrape_gdflix(url):
     return data
 
 
-# ========================= SAFE EDIT =========================
 
-async def safe_edit(msg: Message, new_text: str):
-    # Skip if same message
-    old = getattr(msg, "text", None)
-    if old == new_text:
-        return
-
-    try:
-        await msg.edit(new_text, parse_mode="html", disable_web_page_preview=True)
-    except MessageNotModified:
-        return
-    except FloodWait as e:
-        await asyncio.sleep(e.x)
-        await msg.edit(new_text, parse_mode="html", disable_web_page_preview=True)
-    except Exception as e:
-        print("EDIT ERROR:", e)
-        return
-
-
-# ========================= FORMATTER =========================
+# ========================= FORMAT MESSAGE =========================
 
 def format_bypass_message(d, message, elapsed):
-    return (
-        f"<b>✅ GDFlix Extracted Links:</b>\n\n"
+    text = (
+        f"✅ **GDFlix Extracted Links:**\n\n"
 
-        f"<b>📚 Title:</b>\n"
-        f"{d['title']}\n\n"
+        f"┎ 📚 **Title:**\n"
+        f"┃ {d['title']}\n\n"
 
-        f"<b>💾 Size:</b>\n"
-        f"{d['size']}\n\n"
+        f"┠ 💾 **Size:**\n"
+        f"┃ {d['size']}\n\n"
 
-        f"<b>🔗 Google Video:</b>\n"
-        f"{d['instantdl']}\n\n"
+        f"┠ 🔗 **Google Video:**\n"
+        f"┃ {d['instantdl']}\n\n"
 
-        f"<b>🔗 Cloud Download:</b>\n"
-        f"{d['cloud_resume'] or 'Not Found'}\n\n"
+        f"┠ 🔗 **Cloud Download:**\n"
+        f"┃ {d['cloud_resume'] or 'Not Found'}\n\n"
 
-        f"<b>🔗 Telegram File:</b>\n"
-        f"{d['telegram']}\n\n"
+        f"┠ 🔗 **Telegram File:**\n"
+        f"┃ {d['telegram'] or 'Not Found'}\n\n"
 
-        f"<b>🔗 GoFile:</b>\n"
-        f"{d['gofile']}\n\n"
+        f"┠ 🔗 **GoFile:**\n"
+        f"┃ {d['gofile'] or 'Not Found'}\n\n"
 
-        f"<b>🔗 PixelDrain:</b>\n"
-        f"{d['pixeldrain']}\n\n"
+        f"┠ 🔗 **PixelDrain:**\n"
+        f"┃ {d['pixeldrain'] or 'Not Found'}\n\n"
 
-        f"<b>🔗 DriveBot:</b>\n"
-        f"{d['drivebot']}\n\n"
+        f"┠ 🔗 **DriveBot:**\n"
+        f"┃ {d['drivebot'] or 'Not Found'}\n\n"
 
-        f"<b>🔗 ZFile:</b>\n"
-        f"{(d['zfile'][0] if d['zfile'] else 'Not Found')}\n\n"
+        f"┖ 🔗 **ZFile:**\n"
+        f"  {(d['zfile'][0] if d['zfile'] else 'Not Found')}\n\n"
 
-        f"⏱️ <b>Bypassed in {elapsed} seconds</b>\n\n"
-        f"<b>Requested By:</b> {message.from_user.mention}\n"
+        f"━━━━━━━━✦✗✦━━━━━━━━\n\n"
+        f"⏱️ **Bypassed in {elapsed} seconds**\n\n"
+
+        f"<b>Requested By :-</b> {message.from_user.mention}\n"
         f"<b>(#ID_{message.from_user.id})</b>"
     )
+    return text
+
 
 
 # ========================= URL EXTRACTOR =========================
@@ -225,16 +225,14 @@ def extract_links_from_text(text):
     return URL_RE.findall(text or "")
 
 
+
 # ========================= MAIN COMMAND =========================
 
 @Client.on_message(filters.command(["gd", "gdflix"]))
 async def gdflix_handler(client: Client, message: Message):
 
     if str(message.chat.id) not in OFFICIAL_GROUPS:
-        return await message.reply(
-            "❌ This command only works in our official group.",
-            disable_web_page_preview=True
-        )
+        return await message.reply("❌ This command only works in our official group.")
 
     parts = message.text.split()
     links = extract_links_from_text(" ".join(parts[1:]))
@@ -243,23 +241,16 @@ async def gdflix_handler(client: Client, message: Message):
         links = extract_links_from_text(message.reply_to_message.text or "")
 
     if not links:
-        return await message.reply(
-            "⚠️ Usage: /gd <link> OR reply to a message containing links.",
-            disable_web_page_preview=True
-        )
+        return await message.reply("⚠️ Usage: /gd <link1> <link2> … OR reply to a message containing links.")
 
     links = links[:8]
 
     for i, url in enumerate(links, 1):
-        temp = await message.reply(
-            f"⏳ ({i}/{len(links)}) Bypassing: {url}",
-            disable_web_page_preview=True
-        )
+        temp = await message.reply(f"⏳ ({i}/{len(links)}) Bypassing: {url}")
 
         start = time.time()
         data = scrape_gdflix(url)
         elapsed = round(time.time() - start, 2)
 
         formatted = format_bypass_message(data, message, elapsed)
-
-        await safe_edit(temp, formatted)
+        await temp.edit(formatted)
