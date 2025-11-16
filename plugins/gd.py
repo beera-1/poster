@@ -6,6 +6,9 @@ import re
 from bs4 import BeautifulSoup
 import urllib.parse
 import time
+import asyncio
+import pyrogram
+from pyrogram.errors import RPCError, FloodWait, MessageNotModified
 
 OFFICIAL_GROUPS = ["-1002311378229"]
 
@@ -15,12 +18,16 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 # ========================= NEW GOOGLE LINK FETCHER =========================
 
 def clean_google_link(link):
+    """Remove fastcdn prefix if exists."""
     if not link:
         return None
-    return re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
+    # Remove fastcdn prefix
+    link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
+    return link
 
 
 def format_href(link):
+    """Format link with <a href> and display 𝗟𝗜𝗡𝗞"""
     if not link:
         return "Not Found"
     return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
@@ -39,7 +46,6 @@ def get_instantdl(gd_url):
 def get_google_from_instant(instant_url):
     if not instant_url:
         return None
-
     try:
         r = requests.get(instant_url, headers=HEADERS, allow_redirects=True, timeout=20)
     except:
@@ -47,9 +53,11 @@ def get_google_from_instant(instant_url):
 
     final = r.url
 
+    # 1️⃣ Direct Google Link
     if "video-downloads.googleusercontent.com" in final:
         return clean_google_link(final)
 
+    # 2️⃣ FastCDN → extract ONLY google link
     if "fastcdn-dl.pages.dev" in final and "url=" in final:
         pure = final.split("url=")[-1]
         if "video-downloads.googleusercontent.com" in pure:
@@ -88,7 +96,6 @@ def try_zfile_fallback(final_url):
         found = scan(html, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
         if found:
             return found
-
     return None
 
 
@@ -99,6 +106,7 @@ def scrape_gdflix(url):
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
+    # NEW: Extract real Google link
     instantdl = get_instantdl(url)
     google_video = get_google_from_instant(instantdl)
 
@@ -118,16 +126,15 @@ def scrape_gdflix(url):
         "instantdl": format_href(google_video),
     }
 
-    # ================== FINAL FIXED CLOUD DOWNLOAD CLEANER ===================
+    # ===== CLEAN CLOUD DOWNLOAD LINK (remove fastcdn wrapper) =====
     cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if cloud_raw:
-        # Remove wrapper
         cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
         cleaned_cloud = urllib.parse.unquote(cleaned_cloud)
         data["cloud_resume"] = format_href(cleaned_cloud)
     else:
         data["cloud_resume"] = None
-    # ========================================================================
+    # ===============================================================
 
     data.update({
         "pixeldrain": format_href(pix),
@@ -162,6 +169,69 @@ def scrape_gdflix(url):
             pass
 
     return data
+
+
+# ========================= SAFE EDIT UTILITY =========================
+
+async def safe_edit(message_obj: Message, new_text: str, parse_mode=None, disable_web_page_preview=True):
+    """
+    Safe message editor:
+      - Skip editing when content identical (prevents MessageNotModified)
+      - Retry once on TimeoutError / transient failures
+      - Catch and ignore MessageNotModified
+    """
+    # Attempt to get current text; fallback to attribute access
+    current = None
+    try:
+        # message_obj.text is the current message text (if available)
+        current = getattr(message_obj, "text", None)
+    except:
+        current = None
+
+    # If identical, skip editing
+    if current is not None and current == new_text:
+        return
+
+    attempt = 0
+    max_attempts = 2
+    backoff = 0.5
+    while attempt < max_attempts:
+        try:
+            # Use edit_text so we keep formatting consistent
+            await message_obj.edit(new_text, parse_mode=parse_mode, disable_web_page_preview=disable_web_page_preview)
+            return
+        except MessageNotModified:
+            # Already identical according to Telegram — nothing to do
+            return
+        except asyncio.TimeoutError:
+            # Transient network timeout; retry
+            attempt += 1
+            await asyncio.sleep(backoff)
+            backoff *= 2
+            continue
+        except RPCError as e:
+            # Some RPC errors are transient (FloodWait etc.). Handle gracefully
+            # If it's FloodWait, respect the wait
+            if isinstance(e, FloodWait):
+                wait = int(e.x) if hasattr(e, "x") else 1
+                await asyncio.sleep(wait + 1)
+                attempt += 1
+                continue
+            # For other RPC errors, log and stop retrying
+            # (don't crash handler)
+            try:
+                # best-effort print; in real bot use logging
+                print(f"[gd_plugin] edit RPCError: {type(e).__name__}: {e}")
+            except:
+                pass
+            return
+        except Exception as e:
+            # Unknown error — don't crash handler
+            try:
+                print(f"[gd_plugin] edit unexpected exception: {e}")
+            except:
+                pass
+            return
 
 
 # ========================= FORMAT MESSAGE =========================
@@ -210,6 +280,7 @@ def format_bypass_message(d, message, elapsed):
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
+
 def extract_links_from_text(text):
     return URL_RE.findall(text or "")
 
@@ -241,4 +312,6 @@ async def gdflix_handler(client: Client, message: Message):
         elapsed = round(time.time() - start, 2)
 
         formatted = format_bypass_message(data, message, elapsed)
-        await temp.edit(formatted)
+
+        # Use safe_edit to avoid MessageNotModified and transient timeouts
+        await safe_edit(temp, formatted, parse_mode="html", disable_web_page_preview=False)
