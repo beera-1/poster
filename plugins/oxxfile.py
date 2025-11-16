@@ -40,7 +40,6 @@ async def cinevood_scraper(client: Client, message: Message):
         await loading.edit("❌ Worker error occurred.")
         return
 
-    # Build Output Message
     title = data.get("title", "Unknown")
     files = data.get("files", [])
 
@@ -49,23 +48,22 @@ async def cinevood_scraper(client: Client, message: Message):
         return
 
     # ---------------------------
-    # FINAL OUTPUT FORMAT (Screenshot Style)
+    # FINAL OUTPUT (MONOSPACE + CLEAN + CLICKABLE)
     # ---------------------------
-    text = f"≡ ***{title}***\n\n"
+    text = "<pre>"
+    text += f"☰ {title}\n\n"
 
     for i, f in enumerate(files, start=1):
-        name = f.get("name", "Unknown")
-        size = f.get("size", "Unknown")
-        oxx = f.get("oxx_link")
+        name = f.get('name', 'Unknown')
+        size = f.get('size', 'Unknown')
+        oxx = f.get('oxx_link')
 
-        text += f"**{i}.** {name} `{size}`\n"
-        text += f"╰ **Links :** ☁️[**OxxFile**]({oxx})\n\n"
+        text += f"{i}. {name} [{size}]\n"
+        text += f"┖ Links : 🌩️OxxFile -> {oxx}\n\n"
 
-    text += "━━━━━━━━━━━━ ✦ ✧ ✦ ━━━━━━━━━━━━\n\n"
-
-    # ---- ONLY THIS PART ADDED (NO OTHER CHANGES) ----
-    text += f"<b>Requested By :-</b> {message.from_user.mention}\n\n"
-    text += f"<b>(#ID_{message.from_user.id})</b>"
-    # -------------------------------------------------
+    text += "━━━━━━━✦✗✦━━━━━━━\n"
+    text += f"Requested By :- {message.from_user.first_name}\n"
+    text += f"(#ID_{message.from_user.id})"
+    text += "</pre>"
 
     await loading.edit(text, parse_mode=ParseMode.HTML)
