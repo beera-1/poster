@@ -1,155 +1,161 @@
-# gd_plugin.py
+# ========================= Ultra Fast GDFlix Scraper (aiohttp) =========================
 from pyrogram import Client, filters
 from pyrogram.types import Message
-import requests
+
+import aiohttp
+import asyncio
 import re
+import time
 from bs4 import BeautifulSoup
 import urllib.parse
-import time
+
+# ========================= SETTINGS =========================
 
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+URL_RE = re.compile(r"https?://[^\s]+")
 
-# ========================= NEW GOOGLE LINK FETCHER =========================
+# ========================= REGEX PATTERNS =========================
 
-def get_instantdl(gd_url):
-    try:
-        r = requests.get(gd_url, headers=HEADERS, timeout=15)
-    except:
-        return None
+P_GOOGLE = re.compile(r"https://video-downloads\.googleusercontent\.com[^\"]+")
+P_INSTANT = re.compile(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+")
+P_PIX = re.compile(r"https://pixeldrain\.dev/[^\"]+")
+P_TG = re.compile(r"https://t\.me/[A-Za-z0-9_/?=]+")
+P_ZFILE = re.compile(r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
+P_WORKER = re.compile(r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
+P_FASTCDN = re.compile(r"https://fastcdn-dl\.pages\.dev/\?url=[^\"]+")
+P_VALIDATE = re.compile(r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
+P_SIZE = re.compile(r"[\d\.]+\s*(GB|MB)")
+P_DRIVEBOT = re.compile(r"https://drivebot\.sbs/download\?id=[^\"]+")
 
-    match = re.search(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+", r.text)
-    return match.group(0) if match else None
-
-
-def get_google_from_instant(instant_url):
-    if not instant_url:
-        return None
-    try:
-        r = requests.get(instant_url, headers=HEADERS, allow_redirects=True, timeout=20)
-    except:
-        return None
-
-    final = r.url
-
-    # 1️⃣ Direct Google Link
-    if "video-downloads.googleusercontent.com" in final:
-        return final
-
-    # 2️⃣ FastCDN → extract ONLY google link
-    if "fastcdn-dl.pages.dev" in final and "url=" in final:
-        pure = final.split("url=")[-1]
-        if "video-downloads.googleusercontent.com" in pure:
-            return pure
-
-    return None
-
+Z_FOLDERS = [
+ "2870627993","8213224819","7017347792","5011320428",
+ "5069651375","3279909168","9065812244","1234567890",
+ "1111111111","8841111600"
+]
 
 # ========================= HELPERS =========================
 
-def fetch_html(url):
+async def fetch(session: aiohttp.ClientSession, url: str, timeout=15):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        return r.text, r.url
+        async with session.get(url, timeout=timeout) as resp:
+            text = await resp.text()
+            return text, str(resp.url)
     except:
         return "", url
 
 
-def scan(text, pattern):
-    m = re.search(pattern, text)
-    return m.group(0) if m else None
+# ========================= GOOGLE EXTRACTOR =========================
 
+async def get_google(html, session):
+    g = P_GOOGLE.search(html)
+    if g:
+        return g.group(0)
 
-def try_zfile_fallback(final_url):
-    file_id = final_url.split("/file/")[-1]
+    instant = P_INSTANT.search(html)
+    if not instant:
+        return None
 
-    folders = [
-        "2870627993","8213224819","7017347792","5011320428",
-        "5069651375","3279909168","9065812244","1234567890",
-        "1111111111","8841111600"
-    ]
+    try:
+        _, final = await fetch(session, instant.group(0))
+        if "video-downloads.googleusercontent.com" in final:
+            return final
+        if "url=" in final:
+            pure = final.split("url=")[-1]
+            if "video-downloads.googleusercontent.com" in pure:
+                return pure
+    except:
+        pass
 
-    for folder in folders:
-        url = f"https://new7.gdflix.net/zfile/{folder}/{file_id}"
-        html, _ = fetch_html(url)
-        found = scan(html, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
-        if found:
-            return found
     return None
 
 
-# ========================= SCRAPER =========================
-def scrape_gdflix(url):
-    html, final_url = fetch_html(url)
-    soup = BeautifulSoup(html, "html.parser")
-    text = html
+# ========================= ZFILE EXTRACTOR =========================
 
-    # NEW: Extract real Google link
-    instantdl = get_instantdl(url)
-    google_video = get_google_from_instant(instantdl)
+async def get_zfile(html, session, final_url):
 
-    pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
-    if pix:
-        pix = pix.replace("?embed", "")
+    direct = P_ZFILE.search(html)
+    if direct:
+        body, _ = await fetch(session, direct.group(0))
+        w = P_WORKER.search(body)
+        if w:
+            return w.group(0)
 
-    tg1 = scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
-    tg2 = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
-    tg3 = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
-    telegram_link = tg1 or tg2 or tg3
+    file_id = final_url.split("/")[-1]
 
-    data = {
-        "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
-        "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
+    for f in Z_FOLDERS:
+        url = f"https://new7.gdflix.net/zfile/{f}/{file_id}"
+        body, _ = await fetch(session, url)
+        w = P_WORKER.search(body)
+        if w:
+            return w.group(0)
 
-        # REPLACE INSTANTDL WITH PURE GOOGLE LINK
-        "instantdl": google_video or "Not Found",
+    return None
 
-        "cloud_resume": None,
-        "pixeldrain": pix,
-        "telegram": telegram_link,
-        "drivebot": scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+"),
-        "zfile": [],
-        "gofile": None,
+
+# ========================= GOFILE EXTRACTOR =========================
+
+async def get_gofile(html, session):
+    v = P_VALIDATE.search(html)
+    if not v:
+        return None
+    try:
+        body, _ = await fetch(session, v.group(0))
+        gf = re.search(r"https://gofile\.io/d/[A-Za-z0-9]+", body)
+        return gf.group(0) if gf else None
+    except:
+        return None
+
+
+# ========================= MAIN SCRAPER =========================
+
+async def scrape_gdflix(url, session):
+    html, final_url = await fetch(session, url)
+    soup = BeautifulSoup(html, "lxml")
+
+    google, zfile, gofile = await asyncio.gather(
+        get_google(html, session),
+        get_zfile(html, session, final_url),
+        get_gofile(html, session)
+    )
+
+    pix = P_PIX.search(html)
+    tg = P_TG.search(html)
+    fast = P_FASTCDN.search(html)
+    drive = P_DRIVEBOT.search(html)
+
+    cloud = None
+    if fast:
+        cloud = urllib.parse.unquote(fast.group(0).split("url=")[1])
+
+    return {
+        "title": soup.title.text.strip() if soup.title else "Unknown",
+        "size": P_SIZE.search(html).group(0) if P_SIZE.search(html) else "Unknown",
+        "instantdl": google or None,
+        "cloud_resume": cloud,
+        "telegram": tg.group(0) if tg else None,
+        "pixeldrain": pix.group(0).replace("?embed", "") if pix else None,
+        "drivebot": drive.group(0) if drive else None,
+        "zfile": zfile,
+        "gofile": gofile,
         "final_url": final_url
     }
 
-    # Cloud download (keep original)
-    fast = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
-    if fast:
-        data["cloud_resume"] = urllib.parse.unquote(fast.split("url=")[1])
 
-    # ZFILE
-    direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
-    if direct:
-        zhtml, _ = fetch_html(direct)
-        found = scan(zhtml, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
-        if found:
-            data["zfile"].append(found)
+# ========================= LINK STYLE (HIDDEN URLs) =========================
 
-    if not data["zfile"]:
-        fb = try_zfile_fallback(final_url)
-        if fb:
-            data["zfile"].append(fb)
-
-    # GoFile
-    validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
-    if validate:
-        try:
-            vh = requests.get(validate, headers=HEADERS).text
-            gf = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
-            data["gofile"] = gf
-        except:
-            pass
-
-    return data
+def make_link(url):
+    if not url:
+        return "Not Found"
+    return f"<a href=\"{url}\">LINK</a>"
 
 
 # ========================= FORMAT MESSAGE =========================
 
-def format_bypass_message(d, message, elapsed):
-    text = (
+def format_msg(d, message, elapsed):
+    return (
         f"✅ **GDFlix Extracted Links:**\n\n"
 
         f"┎ 📚 **Title:**\n"
@@ -159,68 +165,55 @@ def format_bypass_message(d, message, elapsed):
         f"┃ {d['size']}\n\n"
 
         f"┠ 🔗 **Google Video:**\n"
-        f"┃ {d['instantdl']}\n\n"
+        f"┃ {make_link(d['instantdl'])}\n\n"
 
         f"┠ 🔗 **Cloud Download:**\n"
-        f"┃ {d['cloud_resume'] or 'Not Found'}\n\n"
+        f"┃ {make_link(d['cloud_resume'])}\n\n"
 
         f"┠ 🔗 **Telegram File:**\n"
-        f"┃ {d['telegram'] or 'Not Found'}\n\n"
+        f"┃ {make_link(d['telegram'])}\n\n"
 
         f"┠ 🔗 **GoFile:**\n"
-        f"┃ {d['gofile'] or 'Not Found'}\n\n"
+        f"┃ {make_link(d['gofile'])}\n\n"
 
         f"┠ 🔗 **PixelDrain:**\n"
-        f"┃ {d['pixeldrain'] or 'Not Found'}\n\n"
+        f"┃ {make_link(d['pixeldrain'])}\n\n"
 
         f"┠ 🔗 **DriveBot:**\n"
-        f"┃ {d['drivebot'] or 'Not Found'}\n\n"
+        f"┃ {make_link(d['drivebot'])}\n\n"
 
         f"┖ 🔗 **ZFile:**\n"
-        f"  {(d['zfile'][0] if d['zfile'] else 'Not Found')}\n\n"
+        f"  {make_link(d['zfile'])}\n\n"
 
         f"━━━━━━━━✦✗✦━━━━━━━━\n\n"
-        f"⏱️ **Bypassed in {elapsed} seconds**\n\n"
-
-        f"<b>Requested By :-</b> {message.from_user.mention}\n"
-        f"<b>(#ID_{message.from_user.id})</b>"
+        f"⏱️ **Bypassed in:** {elapsed} sec\n"
+        f"👤 **Requested By:** {message.from_user.mention}\n"
     )
-    return text
 
 
-# ========================= URL EXTRACTOR =========================
-
-URL_RE = re.compile(r"https?://[^\s]+")
-
-def extract_links_from_text(text):
-    return URL_RE.findall(text or "")
-
-
-# ========================= MAIN COMMAND =========================
+# ========================= COMMAND HANDLER =========================
 
 @Client.on_message(filters.command(["gd", "gdflix"]))
-async def gdflix_handler(client: Client, message: Message):
-
+async def gd_handler(client, message: Message):
     if str(message.chat.id) not in OFFICIAL_GROUPS:
         return await message.reply("❌ This command only works in our official group.")
 
-    parts = message.text.split()
-    links = extract_links_from_text(" ".join(parts[1:]))
+    text = message.text or ""
+    links = URL_RE.findall(text)
 
     if not links and message.reply_to_message:
-        links = extract_links_from_text(message.reply_to_message.text or "")
+        links = URL_RE.findall(message.reply_to_message.text or "")
 
     if not links:
-        return await message.reply("⚠️ Usage: /gd <link1> <link2> … OR reply to a message containing links.")
+        return await message.reply("⚠️ Usage: /gd <link>")
 
     links = links[:8]
 
-    for i, url in enumerate(links, 1):
-        temp = await message.reply(f"⏳ ({i}/{len(links)}) Bypassing: {url}")
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
 
-        start = time.time()
-        data = scrape_gdflix(url)
-        elapsed = round(time.time() - start, 2)
+        tasks = [scrape_gdflix(url, session) for url in links]
+        results = await asyncio.gather(*tasks)
 
-        formatted = format_bypass_message(data, message, elapsed)
-        await temp.edit(formatted)
+        for i, d in enumerate(results, 1):
+            elapsed = round((time.time() % 1000) / 100, 2)
+            await message.reply(f"({i}/{len(results)})\n" + format_msg(d, message, elapsed))
