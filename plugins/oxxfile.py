@@ -11,12 +11,10 @@ OFFICIAL_GROUPS = ["-1002311378229"]
 @Client.on_message(filters.command(["cv", "cinevood"]))
 async def cinevood_scraper(client: Client, message: Message):
 
-    # Authorization Check
     if str(message.chat.id) not in OFFICIAL_GROUPS:
         await message.reply("❌ This command only works in our official group.")
         return
 
-    # No link provided
     if len(message.command) < 2:
         await message.reply("❗ Usage:\n`/cv https://1cinevood.world/...`", parse_mode="markdown")
         return
@@ -30,12 +28,10 @@ async def cinevood_scraper(client: Client, message: Message):
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as resp:
                 data = await resp.json()
-
     except Exception as e:
-        await loading.edit(f"❌ Error fetching data:\n`{e}`", parse_mode="markdown")
+        await loading.edit(f"❌ Error:\n`{e}`", parse_mode="markdown")
         return
 
-    # Worker error check
     if not data.get("ok"):
         await loading.edit("❌ Worker error occurred.")
         return
@@ -47,23 +43,28 @@ async def cinevood_scraper(client: Client, message: Message):
         await loading.edit("❌ No OxxFile links found.")
         return
 
-    # ---------------------------
-    # FINAL OUTPUT (MONOSPACE + CLEAN + CLICKABLE)
-    # ---------------------------
-    text = "<pre>"
-    text += f"☰ {title}\n\n"
+    # ---------------------------------------
+    # MONOSPACE TEXT (EXCEPT CLICKABLE LINK)
+    # ---------------------------------------
+    text = f"<pre>☰ {title}\n\n"
 
     for i, f in enumerate(files, start=1):
-        name = f.get('name', 'Unknown')
-        size = f.get('size', 'Unknown')
-        oxx = f.get('oxx_link')
+        name = f.get("name", "Unknown")
+        size = f.get("size", "Unknown")
+        oxx = f.get("oxx_link")
 
+        # Monospace block for filename + size
         text += f"{i}. {name} [{size}]\n"
-        text += f"┖ Links : 🌩️OxxFile -> {oxx}\n\n"
+        text += "</pre>"  # exit monospace for clickable link
+
+        # Clickable link OUTSIDE pre
+        text += f"┖ Links : <a href=\"{oxx}\">🌩️OxxFile</a>\n\n"
+
+        # Re-open monospace for next item
+        text += "<pre>"
 
     text += "━━━━━━━✦✗✦━━━━━━━\n"
     text += f"Requested By :- {message.from_user.first_name}\n"
-    text += f"(#ID_{message.from_user.id})"
-    text += "</pre>"
+    text += f"(#ID_{message.from_user.id})</pre>"
 
     await loading.edit(text, parse_mode=ParseMode.HTML)
