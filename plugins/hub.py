@@ -6,14 +6,26 @@ import re
 WORKER_URL = "https://hub-v2.botzs.workers.dev/"   # your worker
 
 # -------------------------
+# Normalize to hubcloud.foo
+# -------------------------
+def normalize_to_foo(url: str):
+    # If already foo → return as-is
+    if "hubcloud.foo" in url:
+        return url
+
+    # Convert any (one | fyi) → foo
+    return re.sub(r"hubcloud\.(one|fyi)", "hubcloud.foo", url)
+
+
+# -------------------------
 # SAFE HUBCLOUD LINK EXTRACTOR
 # -------------------------
 def extract_hubcloud_links(text: str):
     if not text:
         return []
 
-    # Only match FULL valid HubCloud URLs
-    pattern = r"https?://hubcloud\.(one|fyi)/drive/[A-Za-z0-9]+"
+    # Support one + fyi + foo
+    pattern = r"https?://hubcloud\.(one|fyi|foo)/drive/[A-Za-z0-9]+"
 
     fixed_links = []
     for match in re.finditer(pattern, text):
@@ -51,6 +63,11 @@ async def hubcloud_handler(client: Client, message: Message):
             "Usage: `/hub <hubcloud link>`\n"
             "Or reply to a message containing HubCloud links."
         )
+
+    # ----------------------------------------
+    # FIX: Convert all URLs → hubcloud.foo
+    # ----------------------------------------
+    hub_links = [normalize_to_foo(u) for u in hub_links]
 
     status = await message.reply_text("🔍 Fetching all links...")
 
