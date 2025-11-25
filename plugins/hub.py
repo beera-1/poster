@@ -2,18 +2,15 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 import aiohttp
 import re
+from urllib.parse import urlparse, urljoin
 
-WORKER_URL = "https://hub-v2.botzs.workers.dev/"   # your worker
 
 # -------------------------
 # Normalize to hubcloud.foo
 # -------------------------
 def normalize_to_foo(url: str):
-    # If already foo → return as-is
     if "hubcloud.foo" in url:
         return url
-
-    # Convert any (one | fyi) → foo
     return re.sub(r"hubcloud\.(one|fyi)", "hubcloud.foo", url)
 
 
@@ -24,14 +21,25 @@ def extract_hubcloud_links(text: str):
     if not text:
         return []
 
-    # Support one + fyi + foo
     pattern = r"https?://hubcloud\.(one|fyi|foo)/drive/[A-Za-z0-9]+"
+    fixed = [m.group(0) for m in re.finditer(pattern, text)]
+    return list(set(fixed))
 
-    fixed_links = []
-    for match in re.finditer(pattern, text):
-        fixed_links.append(match.group(0))
 
-    return list(set(fixed_links))  # dedupe
+# --------------------------------------------------------
+# Extract Google direct CDN link from GamerXyt HTML
+# --------------------------------------------------------
+async def extract_google_from_gamer(session, url):
+    try:
+        async with session.get(url, headers={"User-Agent": "Mozilla/5.0"}) as r:
+            html = await r.text()
+
+        m = re.search(r'id="vd" href=[\'"]([^\'"]+)[\'"]', html)
+        if m:
+            return m.group(1)
+    except:
+        pass
+    return None
 
 
 @Client.on_message(filters.command(["hub", "hubcloud"]))
@@ -39,53 +47,43 @@ async def hubcloud_handler(client: Client, message: Message):
 
     OFFICIAL_GROUPS = ["-1002311378229"]
     if str(message.chat.id) not in OFFICIAL_GROUPS:
-        await message.reply("❌ This command only works in the official group.")
-        return
+        return await message.reply("❌ This command only works in the official group.")
 
     hub_links = []
 
-    # Extract from command
+    # Command extract
     if len(message.command) > 1:
-        raw = " ".join(message.command[1:])
-        hub_links.extend(extract_hubcloud_links(raw))
+        hub_links.extend(extract_hubcloud_links(" ".join(message.command[1:])))
 
-    # Extract from reply message
+    # Reply extract
     if message.reply_to_message:
         tx = message.reply_to_message.text or message.reply_to_message.caption or ""
         hub_links.extend(extract_hubcloud_links(tx))
 
-    # Dedupe
     hub_links = list(set(hub_links))
 
     if not hub_links:
         return await message.reply(
-            "❌ No HubCloud links found.\n\n"
-            "Usage: `/hub <hubcloud link>`\n"
-            "Or reply to a message containing HubCloud links."
+            "❌ No HubCloud links found.\n\nUse `/hub <link>` or reply with /hub"
         )
 
-    # ----------------------------------------
-    # FIX: Convert all URLs → hubcloud.foo
-    # ----------------------------------------
+    # Convert all → hubcloud.foo
     hub_links = [normalize_to_foo(u) for u in hub_links]
 
-    status = await message.reply_text("🔍 Fetching all links...")
+    msg = await message.reply_text("🔍 Fetching all links...")
 
-    # ------------------------
-    # Contact the Cloudflare Worker
-    # ------------------------
-    try:
-        async with aiohttp.ClientSession() as session:
+    # ------------------------------------------------
+    # CONTACT WORKER BUT WITH EXTRA 10GB DIRECT FIX
+    # ------------------------------------------------
+    async with aiohttp.ClientSession() as session:
+        try:
             params = {"url": ",".join(hub_links)}
-            async with session.get(WORKER_URL, params=params, timeout=120) as resp:
+            async with session.get("https://hub-v2.botzs.workers.dev/", params=params, timeout=120) as resp:
                 result_text = await resp.text()
 
-    except Exception as e:
-        return await status.edit(f"⚠️ Error contacting Worker:\n`{e}`")
+        except Exception as e:
+            return await msg.edit(f"⚠️ Error contacting Worker:\n`{e}`")
 
-    # ------------------------
-    # Format Worker Output
-    # ------------------------
     final = "🟢 **HubCloud Multi-Extract Result**\n\n"
     blocks = result_text.strip().split("--------------------------------------")
 
@@ -95,47 +93,65 @@ async def hubcloud_handler(client: Client, message: Message):
             continue
 
         lines = b.split("\n")
-
-        # File Info
+        # First 3 lines = Title, Size, Original Link
         final += "\n".join(lines[:3]) + "\n\n"
 
-        mirror_lines = lines[3:]
-
         label = None
-        for ln in mirror_lines:
+
+        for ln in lines[3:]:
             ln = ln.strip()
             if not ln:
                 continue
 
+            # -------------------------
+            # LABEL LINE
+            # -------------------------
             if not ln.startswith("http"):
-                label = ln
+                label = ln.lower()
                 icon = (
-                    "🔵" if "fsl" in ln.lower()
-                    else "🟠" if "10gb" in ln.lower()
-                    else "🟢" if "pixel" in ln.lower()
-                    else "🟥" if "mega" in ln.lower()
-                    else "🟣" if "zip" in ln.lower()
-                    else "⚪"
+                    "🔵" if "fsl" in label else
+                    "🟠" if "10gb" in label else
+                    "🟢" if "pixel" in label else
+                    "🟥" if "mega" in label else
+                    "🟣" if "zip" in label else
+                    "⚪"
                 )
                 continue
 
+            # -------------------------
+            # DIRECT GOOGLE LINK FIX FOR 10GB TITLE
+            # -------------------------
+            if "10gb" in label:
+                # Step 1 → visit pixel.hubcdn → redirect → gamerxyt
+                try:
+                    async with aiohttp.ClientSession() as session2:
+                        async with session2.get(ln, allow_redirects=True,
+                                                headers={"User-Agent": "Mozilla/5.0"}) as r:
+                            gamer_url = str(r.url)
+
+                        # Step 2 → extract Google direct link
+                        direct = await extract_google_from_gamer(session2, gamer_url)
+
+                        if direct:
+                            final += f"**🟠 10gb title**\n{direct}\n\n"
+                            continue
+                except:
+                    pass
+
+            # normal mirror
             final += f"**{icon} {label}**\n{ln}\n\n"
 
         final += "\n"
 
-    # ------------------------
-    # FIX: SPLIT IF MESSAGE TOO LONG
-    # ------------------------
+    # -------------------------
+    # SPLIT TOO LONG MESSAGES
+    # -------------------------
     MAX_LEN = 4000
-
     if len(final) <= MAX_LEN:
-        await status.edit(final, disable_web_page_preview=True)
-    else:
-        parts = [final[i:i+MAX_LEN] for i in range(0, len(final), MAX_LEN)]
+        return await msg.edit(final, disable_web_page_preview=True)
 
-        # Send first part by editing original message
-        await status.edit(parts[0], disable_web_page_preview=True)
+    parts = [final[i:i + MAX_LEN] for i in range(0, len(final), MAX_LEN)]
+    await msg.edit(parts[0], disable_web_page_preview=True)
 
-        # Send remaining parts
-        for p in parts[1:]:
-            await message.reply(p, disable_web_page_preview=True)
+    for p in parts[1:]:
+        await message.reply(p, disable_web_page_preview=True)
