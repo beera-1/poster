@@ -8,6 +8,7 @@ from urllib.parse import urljoin, quote
 import time
 
 OFFICIAL_GROUPS = ["-1002311378229"]
+OWNER_ID = 6390511215 # <<< PUT YOUR TELEGRAM ID HERE
 UA = {"User-Agent": "Mozilla/5.0"}
 
 
@@ -156,7 +157,7 @@ async def extract_hubcloud_links(session, url):
             mirrors.append(("TRS", final))
             continue
 
-    # remove duplicates
+    # dedupe
     clean = {}
     for label, link in mirrors:
         clean[link] = label
@@ -182,7 +183,7 @@ async def process_links(urls):
 
 
 # ================================================================
-# MESSAGE FORMATTER
+# FORMATTER
 # ================================================================
 def format_hub_message(d, message, elapsed):
     text = (
@@ -214,13 +215,15 @@ def extract_urls(text):
 
 
 # ================================================================
-# MAIN COMMAND HANDLER (/hub & /hubcloud)
+# MAIN HANDLER WITH OWNER SUPPORT
 # ================================================================
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hub_handler(client: Client, message: Message):
 
-    if str(message.chat.id) not in OFFICIAL_GROUPS:
-        return await message.reply("❌ This command only works in our official group.")
+    # OWNER CAN USE ANYWHERE
+    if message.from_user.id != OWNER_ID:
+        if str(message.chat.id) not in OFFICIAL_GROUPS:
+            return await message.reply("❌ This command only works in our official group.")
 
     urls = extract_urls(message.text)
 
