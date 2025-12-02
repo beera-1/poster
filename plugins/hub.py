@@ -154,7 +154,6 @@ async def extract_hubcloud_links(session, url):
             mirrors.append(("TRS SERVER", final))
             continue
 
-    # ---------- Deduplicate ----------
     clean = {}
     for label, link in mirrors:
         clean[link] = label
@@ -180,21 +179,24 @@ async def process_links(urls):
 
 
 # ================================================================
-# MESSAGE FORMATTER (GDFlix Style)
+# MESSAGE FORMATTER (MARKDOWN HIDDEN LINKS)
 # ================================================================
+def md_escape(s):
+    return s.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+
+
 def format_hub_message(d, message, elapsed):
 
     text = (
-        f"┎ 📚 <b>Title :-</b> {d['title']}\n\n"
-        f"┠ 💾 <b>Size :-</b> {d['size']}\n"
+        f"┎ 📚 *Title :-* {md_escape(d['title'])}\n\n"
+        f"┠ 💾 *Size :-* {d['size']}\n"
         f"┃\n"
     )
 
     for m in d["mirrors"]:
-        link_hidden = f'<a href="{m["url"]}">𝗟𝗜𝗡𝗞</a>'
-        text += f"┠ 🔗 <b>{m['label']}</b> :- {link_hidden}\n┃\n"
+        link_md = f"[𝗟𝗜𝗡𝗞]({m['url']})"
+        text += f"┠ 🔗 *{m['label']}* :- {link_md}\n┃\n"
 
-    # Replace last ┠ with ┖
     lines = text.split("\n")
     for i in range(len(lines)-1, -1, -1):
         if lines[i].startswith("┠"):
@@ -202,10 +204,12 @@ def format_hub_message(d, message, elapsed):
             break
     text = "\n".join(lines)
 
+    user_mention = f"[{md_escape(message.from_user.first_name)}](tg://user?id={message.from_user.id})"
+
     text += (
         "\n━━━━━━━✦✗✦━━━━━━━\n\n"
-        f"⏱️ <b>Bypassed in {elapsed} seconds</b>\n\n"
-        f"🙋 Requested By :- {message.from_user.mention} (#ID_{message.from_user.id})"
+        f"⏱️ *Bypassed in {elapsed} seconds*\n\n"
+        f"🙋 *Requested By :-* {user_mention} *(#ID_{message.from_user.id})*"
     )
 
     return text
@@ -248,4 +252,5 @@ async def hub_handler(client: Client, message: Message):
         elapsed = round(time.time() - start, 2)
 
         formatted = format_hub_message(data[0], message, elapsed)
-        await temp.edit(formatted, parse_mode="html")
+
+        await temp.edit(formatted, parse_mode="markdown")
