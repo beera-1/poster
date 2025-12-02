@@ -2,7 +2,6 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message
 import aiohttp
-import asyncio
 import re
 from urllib.parse import quote
 import time
@@ -13,7 +12,33 @@ UA = {"User-Agent": "Mozilla/5.0"}
 
 
 # ================================================================
-# UTILITIES
+# ESCAPE FOR MARKDOWN V2
+# ================================================================
+def esc(s: str) -> str:
+    return (
+        s.replace("\\", "\\\\")
+        .replace(".", "\\.")
+        .replace("-", "\\-")
+        .replace("(", "\\(")
+        .replace(")", "\\)")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace("!", "\\!")
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+        .replace("{", "\\{")
+        .replace("}", "\\}")
+        .replace(">", "\\>")
+        .replace("<", "\\<")
+        .replace("+", "\\+")
+        .replace("=", "\\=")
+        .replace("|", "\\|")
+        .replace("#", "\\#")
+        .replace("`", "\\`")
+        .replace("~", "\\~")
+    )
+
+
 # ================================================================
 def clean_url(url):
     try:
@@ -21,10 +46,8 @@ def clean_url(url):
     except:
         return url
 
-
 def normalize_hubcloud(url):
     return re.sub(r"hubcloud\.(one|fyi)", "hubcloud.foo", url)
-
 
 def extract_links(html):
     return re.findall(r'href=[\'"]([^\'"]+)[\'"]', html)
@@ -34,7 +57,7 @@ def is_zipdisk(url, html):
     u = url.lower()
     if any(x in u for x in ["workers.dev", "ddl", "cloudserver", "zipdisk"]):
         return True
-    if re.search(r"ddl\d+\.", u):
+    if re.search(r"ddl\\d+\\.", u):
         return True
     if re.search(r"/[0-9a-f]{40,}/", u):
         return True
@@ -61,8 +84,8 @@ async def resolve_10gbps_chain(session, url):
 
 def extract_trs_links(html):
     trs = set()
-    trs.update(re.findall(r"trs\.php[^\"']+", html))
-    xs = re.findall(r"trs\.php\?xs=[A-Za-z0-9=]+", html)
+    trs.update(re.findall(r"trs\\.php[^\"']+", html))
+    xs = re.findall(r"trs\\.php\\?xs=[A-Za-z0-9=]+", html)
     for x in xs:
         trs.add("https://hubcloud.foo/re/" + x)
     return list(trs)
@@ -70,14 +93,13 @@ def extract_trs_links(html):
 
 def extract_special_links(html):
     patterns = {
-        "fsl_v2": r"https://cdn\.fsl-buckets\.life/[^\s\"']+",
-        "fsl_r2": r"https://[A-Za-z0-9\.\-]+\.r2\.dev/[^\s\"']+",
-        "pixel_alt": r"https://pixel\.hubcdn\.fans/[^\s\"']+",
-        "pixeldrain": r"https://pixeldrain\.dev/u/[A-Za-z0-9]+",
-        "zipdisk": r"https://[A-Za-z0-9\.\-]+workers\.dev/[^\s\"']+",
-        "megaserver": r"https://mega\.blockxpiracy\.net/cs/[^\s\"']+",
+        "fsl_v2": r"https://cdn\\.fsl-buckets\\.life/[^\\s\"']+",
+        "fsl_r2": r"https://[A-Za-z0-9\\.\\-]+\\.r2\\.dev/[^\\s\"']+",
+        "pixel_alt": r"https://pixel\\.hubcdn\\.fans/[^\\s\"']+",
+        "pixeldrain": r"https://pixeldrain\\.dev/u/[A-Za-z0-9]+",
+        "zipdisk": r"https://[A-Za-z0-9\\.\\-]+workers\\.dev/[^\\s\"']+",
+        "megaserver": r"https://mega\\.blockxpiracy\\.net/cs/[^\\s\"']+",
     }
-
     out = []
     for name, pattern in patterns.items():
         for v in re.findall(pattern, html):
@@ -85,8 +107,6 @@ def extract_special_links(html):
     return out
 
 
-# ================================================================
-# MAIN EXTRACT FUNCTION
 # ================================================================
 async def extract_hubcloud_links(session, url):
     url = normalize_hubcloud(url)
@@ -97,14 +117,13 @@ async def extract_hubcloud_links(session, url):
     title = re.search(r"<title>(.*?)</title>", html)
     title = title.group(1) if title else "Unknown"
 
-    size = re.search(r"[\d\.]+\s*(GB|MB)", html)
+    size = re.search(r"[\\d\\.]+\\s*(GB|MB)", html)
     size = size.group(0) if size else "Unknown"
 
     hrefs = extract_links(html)
     hrefs.extend(extract_trs_links(html))
 
-    special_links = extract_special_links(html)
-    for _, v in special_links:
+    for _, v in extract_special_links(html):
         hrefs.append(v)
 
     mirrors = []
@@ -112,6 +131,7 @@ async def extract_hubcloud_links(session, url):
     for link in hrefs:
         if not link.startswith("http"):
             continue
+
         link = clean_url(link)
 
         if is_zipdisk(link, html):
@@ -136,10 +156,6 @@ async def extract_hubcloud_links(session, url):
 
         if "blockxpiracy" in link:
             mirrors.append(("MEGA", link))
-            continue
-
-        if "stranger-things" in link:
-            mirrors.append(("FSL", link))
             continue
 
         if "gpdl.hubcdn.fans" in link:
@@ -168,64 +184,41 @@ async def extract_hubcloud_links(session, url):
 
 
 # ================================================================
-# MULTI-LINK PROCESSOR
-# ================================================================
 async def process_links(urls):
     async with aiohttp.ClientSession() as session:
-        out = []
-        for url in urls:
-            out.append(await extract_hubcloud_links(session, url))
-        return out
+        return [await extract_hubcloud_links(session, url) for url in urls]
 
 
 # ================================================================
-# MESSAGE FORMATTER (MARKDOWN HIDDEN LINKS)
-# ================================================================
-def md_escape(s):
-    return s.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
-
-
 def format_hub_message(d, message, elapsed):
 
-    text = (
-        f"┎ 📚 *Title :-* {md_escape(d['title'])}\n\n"
-        f"┠ 💾 *Size :-* {d['size']}\n"
-        f"┃\n"
-    )
+    out = []
+    out.append(f"┎ 📚 *Title :-* {esc(d['title'])}\n")
+    out.append(f"┠ 💾 *Size :-* {esc(d['size'])}\n┃")
 
     for m in d["mirrors"]:
-        link_md = f"[𝗟𝗜𝗡𝗞]({m['url']})"
-        text += f"┠ 🔗 *{m['label']}* :- {link_md}\n┃\n"
+        link = esc(m["url"])
+        out.append(f"┠ 🔗 *{esc(m['label'])}* :- [𝗟𝗜𝗡𝗞]({link})\n┃")
 
-    lines = text.split("\n")
-    for i in range(len(lines)-1, -1, -1):
-        if lines[i].startswith("┠"):
-            lines[i] = lines[i].replace("┠", "┖", 1)
-            break
-    text = "\n".join(lines)
+    out[-1] = out[-1].replace("┠", "┖", 1)
 
-    user_mention = f"[{md_escape(message.from_user.first_name)}](tg://user?id={message.from_user.id})"
+    user = esc(message.from_user.first_name)
+    user_md = f"[{user}](tg://user?id={message.from_user.id})"
 
-    text += (
-        "\n━━━━━━━✦✗✦━━━━━━━\n\n"
-        f"⏱️ *Bypassed in {elapsed} seconds*\n\n"
-        f"🙋 *Requested By :-* {user_mention} *(#ID_{message.from_user.id})*"
-    )
+    out.append(f"\n━━━━━━━✦✗✦━━━━━━━\n")
+    out.append(f"⏱️ *Bypassed in {elapsed} seconds*\n")
+    out.append(f"🙋 *Requested By :-* {user_md} *(#ID_{message.from_user.id})*")
 
-    return text
+    return "\n".join(out)
 
 
 # ================================================================
-# URL FINDER
-# ================================================================
-URL_RE = re.compile(r"https?://[^\s]+")
+URL_RE = re.compile(r"https?://[^\\s]+")
 
 def extract_urls(text):
     return URL_RE.findall(text or "")
 
 
-# ================================================================
-# MAIN COMMAND HANDLER
 # ================================================================
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hub_handler(client: Client, message: Message):
@@ -244,13 +237,14 @@ async def hub_handler(client: Client, message: Message):
 
     urls = urls[:8]
 
-    for i, url in enumerate(urls, 1):
-        temp = await message.reply(f"⏳ ({i}/{len(urls)}) Extracting: {url}")
+    for i, link in enumerate(urls, 1):
+
+        temp = await message.reply(f"⏳ ({i}/{len(urls)}) Extracting…")
 
         start = time.time()
-        data = await process_links([url])
+        data = await process_links([link])
         elapsed = round(time.time() - start, 2)
 
-        formatted = format_hub_message(data[0], message, elapsed)
+        msg = format_hub_message(data[0], message, elapsed)
 
-        await temp.edit(formatted, parse_mode="markdown")
+        await temp.edit(msg, parse_mode="markdown")
