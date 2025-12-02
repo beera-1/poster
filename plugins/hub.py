@@ -12,33 +12,7 @@ UA = {"User-Agent": "Mozilla/5.0"}
 
 
 # ================================================================
-# ESCAPE FOR MARKDOWN V2
-# ================================================================
-def esc(s: str) -> str:
-    return (
-        s.replace("\\", "\\\\")
-        .replace(".", "\\.")
-        .replace("-", "\\-")
-        .replace("(", "\\(")
-        .replace(")", "\\)")
-        .replace("[", "\\[")
-        .replace("]", "\\]")
-        .replace("!", "\\!")
-        .replace("_", "\\_")
-        .replace("*", "\\*")
-        .replace("{", "\\{")
-        .replace("}", "\\}")
-        .replace(">", "\\>")
-        .replace("<", "\\<")
-        .replace("+", "\\+")
-        .replace("=", "\\=")
-        .replace("|", "\\|")
-        .replace("#", "\\#")
-        .replace("`", "\\`")
-        .replace("~", "\\~")
-    )
-
-
+# UTILITIES
 # ================================================================
 def clean_url(url):
     try:
@@ -52,12 +26,11 @@ def normalize_hubcloud(url):
 def extract_links(html):
     return re.findall(r'href=[\'"]([^\'"]+)[\'"]', html)
 
-
 def is_zipdisk(url, html):
     u = url.lower()
     if any(x in u for x in ["workers.dev", "ddl", "cloudserver", "zipdisk"]):
         return True
-    if re.search(r"ddl\\d+\\.", u):
+    if re.search(r"ddl\d+\.", u):
         return True
     if re.search(r"/[0-9a-f]{40,}/", u):
         return True
@@ -84,8 +57,8 @@ async def resolve_10gbps_chain(session, url):
 
 def extract_trs_links(html):
     trs = set()
-    trs.update(re.findall(r"trs\\.php[^\"']+", html))
-    xs = re.findall(r"trs\\.php\\?xs=[A-Za-z0-9=]+", html)
+    trs.update(re.findall(r"trs\.php[^\"']+", html))
+    xs = re.findall(r"trs\.php\?xs=[A-Za-z0-9=]+", html)
     for x in xs:
         trs.add("https://hubcloud.foo/re/" + x)
     return list(trs)
@@ -93,13 +66,14 @@ def extract_trs_links(html):
 
 def extract_special_links(html):
     patterns = {
-        "fsl_v2": r"https://cdn\\.fsl-buckets\\.life/[^\\s\"']+",
-        "fsl_r2": r"https://[A-Za-z0-9\\.\\-]+\\.r2\\.dev/[^\\s\"']+",
-        "pixel_alt": r"https://pixel\\.hubcdn\\.fans/[^\\s\"']+",
-        "pixeldrain": r"https://pixeldrain\\.dev/u/[A-Za-z0-9]+",
-        "zipdisk": r"https://[A-Za-z0-9\\.\\-]+workers\\.dev/[^\\s\"']+",
-        "megaserver": r"https://mega\\.blockxpiracy\\.net/cs/[^\\s\"']+",
+        "fsl_v2": r"https://cdn\.fsl-buckets\.life/[^\s\"']+",
+        "fsl_r2": r"https://[A-Za-z0-9\.\-]+\.r2\.dev/[^\s\"']+",
+        "pixel_alt": r"https://pixel\.hubcdn\.fans/[^\s\"']+",
+        "pixeldrain": r"https://pixeldrain\.dev/u/[A-Za-z0-9]+",
+        "zipdisk": r"https://[A-Za-z0-9\.\-]+workers\.dev/[^\s\"']+",
+        "megaserver": r"https://mega\.blockxpiracy\.net/cs/[^\s\"']+",
     }
+
     out = []
     for name, pattern in patterns.items():
         for v in re.findall(pattern, html):
@@ -108,18 +82,22 @@ def extract_special_links(html):
 
 
 # ================================================================
+# MAIN SCRAPER
+# ================================================================
 async def extract_hubcloud_links(session, url):
     url = normalize_hubcloud(url)
 
     async with session.get(url, headers=UA) as r:
         html = await r.text()
 
+    # title & size
     title = re.search(r"<title>(.*?)</title>", html)
     title = title.group(1) if title else "Unknown"
 
-    size = re.search(r"[\\d\\.]+\\s*(GB|MB)", html)
+    size = re.search(r"[\d\.]+\s*(GB|MB)", html)
     size = size.group(0) if size else "Unknown"
 
+    # collect links
     hrefs = extract_links(html)
     hrefs.extend(extract_trs_links(html))
 
@@ -135,28 +113,19 @@ async def extract_hubcloud_links(session, url):
         link = clean_url(link)
 
         if is_zipdisk(link, html):
-            mirrors.append(("ZIPDISK", link))
-            continue
-
+            mirrors.append(("ZIPDISK", link)); continue
         if "pixeldrain.dev/u" in link:
-            mirrors.append(("PIXELDRAIN", link))
-            continue
-
+            mirrors.append(("PIXELDRAIN", link)); continue
         if "fsl-buckets" in link:
-            mirrors.append(("FSLV2", link))
-            continue
-
+            mirrors.append(("FSLV2", link)); continue
         if "r2.dev" in link:
-            mirrors.append(("FSLR2", link))
-            continue
-
+            mirrors.append(("FSLR2", link)); continue
         if "pixel.hubcdn.fans" in link:
-            mirrors.append(("PIXEL ALT", link))
-            continue
-
+            mirrors.append(("PIXEL ALT", link)); continue
         if "blockxpiracy" in link:
-            mirrors.append(("MEGA", link))
-            continue
+            mirrors.append(("MEGA", link)); continue
+        if "stranger-things" in link:
+            mirrors.append(("FSL", link)); continue
 
         if "gpdl.hubcdn.fans" in link:
             mirrors.append(("10GBPS", link))
@@ -170,11 +139,12 @@ async def extract_hubcloud_links(session, url):
             mirrors.append(("TRS SERVER", final))
             continue
 
+    # dedupe
     clean = {}
-    for label, link in mirrors:
-        clean[link] = label
+    for lbl, url2 in mirrors:
+        clean[url2] = lbl
 
-    final_list = [{"label": lbl, "url": url} for url, lbl in clean.items()]
+    final_list = [{"label": lbl, "url": url2} for url2, lbl in clean.items()]
 
     return {
         "title": title,
@@ -184,41 +154,45 @@ async def extract_hubcloud_links(session, url):
 
 
 # ================================================================
-async def process_links(urls):
-    async with aiohttp.ClientSession() as session:
-        return [await extract_hubcloud_links(session, url) for url in urls]
-
-
+# FORMATTER (HTML — SAME AS GD PLUGIN)
 # ================================================================
 def format_hub_message(d, message, elapsed):
 
-    out = []
-    out.append(f"┎ 📚 *Title :-* {esc(d['title'])}\n")
-    out.append(f"┠ 💾 *Size :-* {esc(d['size'])}\n┃")
+    text = (
+        f"┎ 📚 <b>Title :-</b> {d['title']}<br><br>"
+        f"┠ 💾 <b>Size :-</b> {d['size']}<br>"
+        f"┃<br>"
+    )
 
     for m in d["mirrors"]:
-        link = esc(m["url"])
-        out.append(f"┠ 🔗 *{esc(m['label'])}* :- [𝗟𝗜𝗡𝗞]({link})\n┃")
+        link = f'<a href="{m["url"]}">𝗟𝗜𝗡𝗞</a>'
+        text += f"┠ 🔗 <b>{m['label']}</b> :- {link}<br>┃<br>"
 
-    out[-1] = out[-1].replace("┠", "┖", 1)
+    # last arrow
+    text = text.rstrip("┃<br>")
+    text = text[::-1].replace("┠"[::-1], "┖"[::-1], 1)[::-1]
 
-    user = esc(message.from_user.first_name)
-    user_md = f"[{user}](tg://user?id={message.from_user.id})"
+    text += (
+        "<br>━━━━━━━✦✗✦━━━━━━━<br><br>"
+        f"⏱️ <b>Bypassed in {elapsed} seconds</b><br><br>"
+        f"🙋 <b>Requested By :-</b> {message.from_user.mention}<br>"
+        f"<b>(#ID_{message.from_user.id})</b>"
+    )
 
-    out.append(f"\n━━━━━━━✦✗✦━━━━━━━\n")
-    out.append(f"⏱️ *Bypassed in {elapsed} seconds*\n")
-    out.append(f"🙋 *Requested By :-* {user_md} *(#ID_{message.from_user.id})*")
-
-    return "\n".join(out)
+    return text
 
 
 # ================================================================
-URL_RE = re.compile(r"https?://[^\\s]+")
+# URL FINDER
+# ================================================================
+URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_urls(text):
     return URL_RE.findall(text or "")
 
 
+# ================================================================
+# MAIN HANDLER
 # ================================================================
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hub_handler(client: Client, message: Message):
@@ -233,18 +207,17 @@ async def hub_handler(client: Client, message: Message):
         urls = extract_urls(message.reply_to_message.text)
 
     if not urls:
-        return await message.reply("⚠️ Usage: /hub <url> or reply with link(s).")
+        return await message.reply("⚠️ Usage: /hub <url>")
 
     urls = urls[:8]
 
-    for i, link in enumerate(urls, 1):
-
+    for i, url in enumerate(urls, 1):
         temp = await message.reply(f"⏳ ({i}/{len(urls)}) Extracting…")
 
         start = time.time()
-        data = await process_links([link])
+        data = await process_links([url])
         elapsed = round(time.time() - start, 2)
 
-        msg = format_hub_message(data[0], message, elapsed)
+        formatted = format_hub_message(data[0], message, elapsed)
 
-        await temp.edit(msg, parse_mode="markdown")
+        await temp.edit(formatted)   # NO parse_mode
