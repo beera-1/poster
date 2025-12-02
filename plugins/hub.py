@@ -36,37 +36,24 @@ def normalize(url: str):
 
 
 # ================================
-# PLAYWRIGHT LOADER (FIXED)
+# PLAYWRIGHT LOADER
 # ================================
 async def fetch_html_js(url: str):
-    """Full JS load → waits until HubCloud injects all mirrors."""
+    """Loads HubCloud fully (JS + dynamic mirrors)"""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-setuid-sandbox"
-                ]
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
 
-            ctx = await browser.new_context(
-                user_agent=UA["User-Agent"],
-                viewport={"width": 1366, "height": 3000}
-            )
-
+            ctx = await browser.new_context(user_agent=UA["User-Agent"])
             page = await ctx.new_page()
-            await page.goto(url, wait_until="domcontentloaded")
 
-            # ⚠ HubCloud loads mirrors via JS after ~6–10 sec
-            try:
-                await page.wait_for_selector("a[href*='hubcdn']", timeout=10000)
-            except:
-                pass
+            await page.goto(url, wait_until="networkidle")
 
-            await page.wait_for_timeout(4000)
+            # HubCloud takes 5–10 seconds to load all mirrors
+            await page.wait_for_timeout(9000)
 
             html = await page.content()
             await browser.close()
@@ -78,7 +65,7 @@ async def fetch_html_js(url: str):
 
 
 # ================================
-# MAIN HUBCLOUD SCRAPER (FIXED)
+# MAIN SCRAPER
 # ================================
 async def scrape_hubcloud(url: str):
     url = normalize(url)
@@ -87,15 +74,15 @@ async def scrape_hubcloud(url: str):
     if not html:
         return {"title": "Unknown", "size": "Unknown", "mirrors": []}
 
-    # TITLE
+    # Title
     t = re.search(r"<title>(.*?)</title>", html, re.I)
     title = t.group(1).strip() if t else "Unknown"
 
-    # SIZE
+    # Size
     s = re.search(r"[\d\.]+\s*(GB|MB)", html)
     size = s.group(0) if s else "Unknown"
 
-    # ALL LINKS
+    # All links found in page
     links = set(re.findall(r'https?://[^\s"\'<>]+', html))
 
     mirrors = []
@@ -105,29 +92,22 @@ async def scrape_hubcloud(url: str):
 
         if "gpdl.hubcdn" in link:
             mirrors.append({"label": "10GBPS", "url": link})
-
         elif "fsl-buckets" in link:
             mirrors.append({"label": "FSLV2", "url": link})
-
         elif ".r2.dev" in link:
             mirrors.append({"label": "FSLR2", "url": link})
-
         elif "pixel.hubcdn" in link:
-            mirrors.append({"label": "PIXEL ALT", "url": link})
-
+            mirrors.append({"label": "PIXEL_ALT", "url": link})
         elif "pixeldrain.dev/u" in link:
             mirrors.append({"label": "PIXELDRAIN", "url": link})
-
         elif "workers.dev" in link or "zipdisk" in link:
             mirrors.append({"label": "ZIPDISK", "url": link})
-
         elif "mega.blockxpiracy" in link:
             mirrors.append({"label": "MEGA", "url": link})
-
         elif "trs.php" in link:
             mirrors.append({"label": "TRS", "url": link})
 
-    # REMOVE DUPLICATES
+    # Remove duplicates
     final = []
     seen = set()
     for m in mirrors:
@@ -143,26 +123,24 @@ async def scrape_hubcloud(url: str):
 
 
 # ================================
-# MESSAGE BUILDER
+# RAW TEXT OUTPUT (NO FORMAT)
 # ================================
-def build_message(data, elapsed, user):
-    out = []
-    out.append(f"┎ 📚 Title :- {data['title']}")
-    out.append(f"┠ 💾 Size :- {data['size']}")
-    out.append("┃")
+def build_raw_output(data, elapsed, user):
+    L = []
+    L.append(f"Title: {data['title']}")
+    L.append(f"Size: {data['size']}")
+    L.append("Links:")
 
-    for m in data["mirrors"]:
-        out.append(f"┠ 🔗 {m['label']} :- {m['url']}")
-        out.append("┃")
+    if not data["mirrors"]:
+        L.append("None")
+    else:
+        for m in data["mirrors"]:
+            L.append(f"- {m['label']}: {m['url']}")
 
-    if out[-1] == "┃":
-        out.pop()
+    L.append(f"Processed_in: {elapsed} sec")
+    L.append(f"Requested_by: {user.first_name} ({user.id})")
 
-    out.append("━━━━━━━✦✗✦━━━━━━━")
-    out.append(f"⏱️ Processed in {elapsed} sec")
-    out.append(f"🙋 Requested By :- {user.first_name} (#ID_{user.id})")
-
-    return "\n".join(out)
+    return "\n".join(L)
 
 
 # ================================
@@ -173,7 +151,7 @@ async def hub_handler(client: Client, message: Message):
 
     if message.from_user.id != OWNER_ID:
         if str(message.chat.id) not in OFFICIAL_GROUPS:
-            return await message.reply("❌ This command only works in our official group.")
+            return await message.reply("This command only works in official group.")
 
     urls = extract_urls(message.text)
 
@@ -186,23 +164,23 @@ async def hub_handler(client: Client, message: Message):
         urls = extract_urls(txt)
 
     if not urls:
-        return await message.reply("⚠️ Usage: /hub <url> or reply with link(s).")
+        return await message.reply("Usage: /hub <url> or reply with link.")
 
     urls = urls[:8]
 
     for i, u in enumerate(urls, 1):
-        temp = await message.reply(f"⏳ ({i}/{len(urls)}) Extracting: {u}")
+
+        temp = await message.reply(f"Extracting {u}")
 
         start = time.time()
         data = await scrape_hubcloud(u)
         elapsed = round(time.time() - start, 2)
 
-        msg = build_message(data, elapsed, message.from_user)
+        raw = build_raw_output(data, elapsed, message.from_user)
 
-        if len(msg) <= 3800:
-            await temp.edit(msg)
+        if len(raw) <= 3900:
+            await temp.edit(raw)
         else:
             await temp.delete()
-            parts = [msg[i:i+3800] for i in range(0, len(msg), 3800)]
-            for p in parts:
+            for p in [raw[i:i+3900] for i in range(0, len(raw), 3900)]:
                 await message.reply(p)
