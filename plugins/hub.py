@@ -1,5 +1,10 @@
 # hub_plugin.py
 
+import cloudscraper
+scraper = cloudscraper.create_scraper(
+    browser={"browser": "chrome", "platform": "android", "mobile": True}
+)
+
 import aiohttp
 import re
 import time
@@ -20,20 +25,16 @@ def clean_url(url: str) -> str:
     except:
         return url
 
-
 def normalize_hubcloud(url: str) -> str:
     return re.sub(r"hubcloud\.(one|fyi)", "hubcloud.foo", url)
-
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_urls(text: str):
     return URL_RE.findall(text or "")
 
-
 def extract_links_from_html(html: str):
     return re.findall(r'href=[\'"]([^\'"]+)[\'"]', html)
-
 
 # -----------------------------------------
 # Extractors / Resolvers
@@ -48,14 +49,12 @@ def is_zipdisk(url: str, html: str) -> bool:
         return True
     return False
 
-
 async def resolve_trs(session, url: str):
     try:
         async with session.get(url, headers=UA, allow_redirects=True) as r:
             return str(r.url)
     except:
         return url
-
 
 async def resolve_10gbps_chain(session, url: str):
     try:
@@ -68,18 +67,14 @@ async def resolve_10gbps_chain(session, url: str):
         pass
     return None
 
-
 def extract_trs_links(html):
     trs = set()
     trs.update(re.findall(r'href=[\'"]([^\'"]*trs\.php[^\'"]*)[\'"]', html))
     trs.update(re.findall(r"(https?://[^\s\"']*trs\.php[^\s\"']*)", html))
-
     xs = re.findall(r"trs\.php\?xs=[A-Za-z0-9=]+", html)
     for x in xs:
         trs.add("https://hubcloud.foo/re/" + x)
-
     return list(trs)
-
 
 def extract_special_links(html: str):
     patterns = {
@@ -95,7 +90,6 @@ def extract_special_links(html: str):
         for link in re.findall(pattern, html):
             found.append((name, link))
     return found
-
 
 # -----------------------------------------
 # PixelDrain Folder / Episode extractor
@@ -126,16 +120,15 @@ async def extract_pixeldrain_zip(session, url: str):
     except:
         return None, []
 
-
 # -----------------------------------------
-# Main HubCloud scraper
+# Main HubCloud scraper (FIXED + CLOUDFLARE BYPASS)
 # -----------------------------------------
 async def extract_hubcloud_links(session, url: str):
     url = normalize_hubcloud(url)
 
+    # ⭐ Cloudflare bypass (instead of aiohttp)
     try:
-        async with session.get(url, headers=UA) as r:
-            html = await r.text()
+        html = scraper.get(url, timeout=20).text
     except:
         return {"title": "Unknown", "size": "Unknown", "mirrors": []}
 
@@ -180,8 +173,7 @@ async def extract_hubcloud_links(session, url: str):
             continue
         if "trs.php" in link:
             final_trs = await resolve_trs(session, link)
-            mirrors.append({"label": "TRS SERVER", "url": final_trs})
-            continue
+            mirrors.append({"label": "TRS SERVER", "url": final_trs}); continue
 
     # Expand PixelDrain
     out = []
@@ -209,14 +201,12 @@ async def extract_hubcloud_links(session, url: str):
         "mirrors": out
     }
 
-
 # -----------------------------------------
 # Multiple links processor
 # -----------------------------------------
 async def process_links(urls):
     async with aiohttp.ClientSession() as session:
         return [await extract_hubcloud_links(session, u) for u in urls]
-
 
 # -----------------------------------------
 # Build message (NO buttons)
@@ -239,7 +229,6 @@ def build_message(data, elapsed, user):
     lines.append(f"🙋 Requested By :- {user.first_name} (#ID_{user.id})")
 
     return "\n".join(lines)
-
 
 # -----------------------------------------
 # /hub Handler
@@ -271,11 +260,9 @@ async def hub_handler(client: Client, message: Message):
 
         final_text = build_message(data, elapsed, message.from_user)
 
-        # Telegram 4096 char limit
         if len(final_text) <= 3800:
             await temp.edit(final_text)
         else:
             await temp.delete()
-            parts = [final_text[i:i+3800] for i in range(0, len(final_text), 3800)]
-            for part in parts:
+            for part in [final_text[i:i+3800] for i in range(0, len(final_text), 3800)]:
                 await message.reply(part)
