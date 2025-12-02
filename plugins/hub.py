@@ -2,19 +2,18 @@
 
 import aiohttp
 import re
-import asyncio
 import time
-from urllib.parse import urljoin, quote, unquote
+from urllib.parse import quote, unquote, urljoin
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import Message
 
 OFFICIAL_GROUPS = ["-1002311378229"]
 OWNER_ID = 6390511215
 UA = {"User-Agent": "Mozilla/5.0"}
 
-# -----------------------
+# -----------------------------------------
 # Utilities
-# -----------------------
+# -----------------------------------------
 def clean_url(url: str) -> str:
     try:
         return quote(url, safe=":/?=&%.-_A-Za-z0-9")
@@ -28,7 +27,6 @@ def normalize_hubcloud(url: str) -> str:
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
-
 def extract_urls(text: str):
     return URL_RE.findall(text or "")
 
@@ -37,10 +35,9 @@ def extract_links_from_html(html: str):
     return re.findall(r'href=[\'"]([^\'"]+)[\'"]', html)
 
 
-# -----------------------
+# -----------------------------------------
 # Extractors / Resolvers
-# -----------------------
-
+# -----------------------------------------
 def is_zipdisk(url: str, html: str) -> bool:
     u = url.lower()
     if any(x in u for x in ["workers.dev", "ddl", "cloudserver", "zipdisk"]):
@@ -52,27 +49,27 @@ def is_zipdisk(url: str, html: str) -> bool:
     return False
 
 
-async def resolve_trs(session: aiohttp.ClientSession, url: str) -> str:
+async def resolve_trs(session, url: str):
     try:
-        async with session.get(url, headers=UA, allow_redirects=True, timeout=20) as r:
+        async with session.get(url, headers=UA, allow_redirects=True) as r:
             return str(r.url)
     except:
         return url
 
 
-async def resolve_10gbps_chain(session: aiohttp.ClientSession, url: str) -> str | None:
+async def resolve_10gbps_chain(session, url: str):
     try:
-        async with session.get(url, headers=UA, allow_redirects=True, timeout=20) as r:
+        async with session.get(url, headers=UA, allow_redirects=True) as r:
             final = str(r.url)
         m = re.search(r"link=([^&]+)", final)
         if m:
             return unquote(m.group(1))
     except:
-        return None
+        pass
     return None
 
 
-def extract_trs_links(html: str):
+def extract_trs_links(html):
     trs = set()
     trs.update(re.findall(r'href=[\'"]([^\'"]*trs\.php[^\'"]*)[\'"]', html))
     trs.update(re.findall(r"(https?://[^\s\"']*trs\.php[^\s\"']*)", html))
@@ -80,6 +77,7 @@ def extract_trs_links(html: str):
     xs = re.findall(r"trs\.php\?xs=[A-Za-z0-9=]+", html)
     for x in xs:
         trs.add("https://hubcloud.foo/re/" + x)
+
     return list(trs)
 
 
@@ -92,22 +90,22 @@ def extract_special_links(html: str):
         "ZIPDISK": r"https://[A-Za-z0-9\.\-]+workers\.dev/[^\s\"']+",
         "MEGA": r"https://mega\.blockxpiracy\.net/cs/[^\s\"']+",
     }
-    out = []
+    found = []
     for name, pattern in patterns.items():
         for link in re.findall(pattern, html):
-            out.append((name, link))
-    return out
+            found.append((name, link))
+    return found
 
 
-# -----------------------
-# PixelDrain folder & episodes extractor
-# -----------------------
-async def extract_pixeldrain_zip(session: aiohttp.ClientSession, url: str):
+# -----------------------------------------
+# PixelDrain Folder / Episode extractor
+# -----------------------------------------
+async def extract_pixeldrain_zip(session, url: str):
     try:
         fid = re.search(r"/u/([A-Za-z0-9]+)", url).group(1)
         api = f"https://pixeldrain.dev/api/file/{fid}/info/zip"
 
-        async with session.get(api, headers=UA, timeout=20) as r:
+        async with session.get(api, headers=UA) as r:
             data = await r.json()
 
         eps = []
@@ -124,29 +122,26 @@ async def extract_pixeldrain_zip(session: aiohttp.ClientSession, url: str):
                     walk(path + item["name"] + "/", item["children"])
 
         walk("", data["children"])
-        return f"{base}", eps
+        return base, eps
     except:
         return None, []
 
 
-# -----------------------
-# Main HubCloud extractor
-# -----------------------
-async def extract_hubcloud_links(session: aiohttp.ClientSession, url: str):
+# -----------------------------------------
+# Main HubCloud scraper
+# -----------------------------------------
+async def extract_hubcloud_links(session, url: str):
     url = normalize_hubcloud(url)
 
     try:
-        async with session.get(url, headers=UA, timeout=20) as r:
+        async with session.get(url, headers=UA) as r:
             html = await r.text()
-            final_url = str(r.url)
     except:
         return {"title": "Unknown", "size": "Unknown", "mirrors": []}
 
-    # Title
-    title_m = re.search(r"<title>(.*?)</title>", html, re.I)
-    title = title_m.group(1).strip() if title_m else "Unknown"
+    title = re.search(r"<title>(.*?)</title>", html, re.I)
+    title = title.group(1).strip() if title else "Unknown"
 
-    # Size
     sm = re.search(r"[\d\.]+\s*(GB|MB)", html)
     size = sm.group(0) if sm else "Unknown"
 
@@ -165,70 +160,48 @@ async def extract_hubcloud_links(session: aiohttp.ClientSession, url: str):
         link = clean_url(link)
 
         if is_zipdisk(link, html):
-            mirrors.append({"label": "ZIPDISK", "url": link})
-            continue
-
+            mirrors.append({"label": "ZIPDISK", "url": link}); continue
         if "pixeldrain.dev/u" in link:
             pix.append(link)
-            mirrors.append({"label": "PIXELDRAIN", "url": link})
-            continue
-
+            mirrors.append({"label": "PIXELDRAIN", "url": link}); continue
         if "fsl-buckets" in link:
-            mirrors.append({"label": "FSLV2", "url": link})
-            continue
-
+            mirrors.append({"label": "FSLV2", "url": link}); continue
         if "r2.dev" in link:
-            mirrors.append({"label": "FSLR2", "url": link})
-            continue
-
+            mirrors.append({"label": "FSLR2", "url": link}); continue
         if "pixel.hubcdn.fans" in link:
-            mirrors.append({"label": "PIXEL ALT", "url": link})
-            continue
-
+            mirrors.append({"label": "PIXEL ALT", "url": link}); continue
         if "blockxpiracy" in link:
-            mirrors.append({"label": "MEGA", "url": link})
-            continue
-
+            mirrors.append({"label": "MEGA", "url": link}); continue
         if "gpdl.hubcdn.fans" in link:
             mirrors.append({"label": "10GBPS", "url": link})
-            direct = await resolve_10gbps_chain(session, link)
-            if direct:
-                mirrors.append({"label": "10GBPS DIRECT", "url": direct})
+            d = await resolve_10gbps_chain(session, link)
+            if d:
+                mirrors.append({"label": "10GBPS DIRECT", "url": d})
             continue
-
         if "trs.php" in link:
             final_trs = await resolve_trs(session, link)
             mirrors.append({"label": "TRS SERVER", "url": final_trs})
             continue
 
-    # Expand pixeldrain
-    expanded = []
+    # Expand PixelDrain
+    out = []
     seen = set()
+
     for m in mirrors:
         if m["label"] != "PIXELDRAIN":
             if m["url"] not in seen:
                 seen.add(m["url"])
-                expanded.append(m)
+                out.append(m)
 
-    pd_unique = []
-    for p in pix:
-        if p not in pd_unique:
-            pd_unique.append(p)
+    pix_unique = list(set(pix))
 
-    for p in pd_unique:
+    for p in pix_unique:
         folder, eps = await extract_pixeldrain_zip(session, p)
-        expanded.append({"label": "PIXELDRAIN FOLDER", "url": p})
+        out.append({"label": "PIXELDRAIN FOLDER", "url": p})
+
         for ep in eps:
             lbl = ep["label"] if len(ep["label"]) <= 40 else ep["label"][:37] + "..."
-            expanded.append({"label": lbl, "url": ep["url"]})
-
-    # Deduplicate
-    out = []
-    seen = set()
-    for x in expanded:
-        if x["url"] not in seen:
-            seen.add(x["url"])
-            out.append(x)
+            out.append({"label": lbl, "url": ep["url"]})
 
     return {
         "title": title,
@@ -237,51 +210,40 @@ async def extract_hubcloud_links(session: aiohttp.ClientSession, url: str):
     }
 
 
-# -----------------------
-# Process multiple URLs
-# -----------------------
-async def process_links(urls: list):
+# -----------------------------------------
+# Multiple links processor
+# -----------------------------------------
+async def process_links(urls):
     async with aiohttp.ClientSession() as session:
-        results = []
-        for u in urls:
-            results.append(await extract_hubcloud_links(session, u))
-        return results
+        return [await extract_hubcloud_links(session, u) for u in urls]
 
 
-# -----------------------
-# Message Builder
-# -----------------------
-def build_message_text(data, elapsed, user):
+# -----------------------------------------
+# Build message (NO buttons)
+# -----------------------------------------
+def build_message(data, elapsed, user):
     lines = []
     lines.append(f"┎ 📚 Title :- {data['title']}")
-    lines.append("")
     lines.append(f"┠ 💾 Size :- {data['size']}")
-    lines.append("")
     lines.append("┃")
+
     for m in data["mirrors"]:
-        lines.append(f"┠ 🔗 {m['label']} :-  𝗟𝗜𝗡𝗞")
+        lines.append(f"┠ 🔗 {m['label']} :- {m['url']}")
         lines.append("┃")
+
     if lines[-1] == "┃":
         lines.pop()
-    lines.append("")
+
     lines.append("━━━━━━━✦✗✦━━━━━━━")
-    lines.append("")
     lines.append(f"⏱️ Processed in {elapsed} seconds")
-    lines.append("")
     lines.append(f"🙋 Requested By :- {user.first_name} (#ID_{user.id})")
+
     return "\n".join(lines)
 
 
-def build_keyboard(mirrors):
-    kb = []
-    for m in mirrors:
-        kb.append([InlineKeyboardButton(f"{m['label']} • 𝗟𝗜𝗡𝗞", url=m['url'])])
-    return InlineKeyboardMarkup(kb)
-
-
-# -----------------------
-# /hub Command Handler
-# -----------------------
+# -----------------------------------------
+# /hub Handler
+# -----------------------------------------
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hub_handler(client: Client, message: Message):
 
@@ -290,6 +252,7 @@ async def hub_handler(client: Client, message: Message):
             return await message.reply("❌ This command only works in our official group.")
 
     urls = extract_urls(message.text)
+
     if not urls and message.reply_to_message:
         txt = message.reply_to_message.text or message.reply_to_message.caption or ""
         urls = extract_urls(txt)
@@ -306,10 +269,13 @@ async def hub_handler(client: Client, message: Message):
         data = (await process_links([u]))[0]
         elapsed = round(time.time() - start, 2)
 
-        text = build_message_text(data, elapsed, message.from_user)
-        kb = build_keyboard(data["mirrors"])
+        final_text = build_message(data, elapsed, message.from_user)
 
-        try:
-            await temp.edit_text(text, reply_markup=kb)
-        except:
-            await message.reply(text, reply_markup=kb)
+        # Telegram 4096 char limit
+        if len(final_text) <= 3800:
+            await temp.edit(final_text)
+        else:
+            await temp.delete()
+            parts = [final_text[i:i+3800] for i in range(0, len(final_text), 3800)]
+            for part in parts:
+                await message.reply(part)
