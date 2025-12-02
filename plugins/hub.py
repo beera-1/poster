@@ -4,11 +4,11 @@ from pyrogram.types import Message
 import aiohttp
 import asyncio
 import re
-from urllib.parse import urljoin, quote
+from urllib.parse import quote
 import time
 
 OFFICIAL_GROUPS = ["-1002311378229"]
-OWNER_ID = 6390511215 # <<< PUT YOUR TELEGRAM ID HERE
+OWNER_ID = 6390511215
 UA = {"User-Agent": "Mozilla/5.0"}
 
 
@@ -33,8 +33,6 @@ def extract_links(html):
 def is_zipdisk(url, html):
     u = url.lower()
     if any(x in u for x in ["workers.dev", "ddl", "cloudserver", "zipdisk"]):
-        return True
-    if "zipdisk" in html.lower():
         return True
     if re.search(r"ddl\d+\.", u):
         return True
@@ -80,15 +78,15 @@ def extract_special_links(html):
         "megaserver": r"https://mega\.blockxpiracy\.net/cs/[^\s\"']+",
     }
 
-    found = []
+    out = []
     for name, pattern in patterns.items():
-        for link in re.findall(pattern, html):
-            found.append((name, link))
-    return found
+        for v in re.findall(pattern, html):
+            out.append((name, v))
+    return out
 
 
 # ================================================================
-# MAIN SCRAPER
+# MAIN EXTRACT FUNCTION
 # ================================================================
 async def extract_hubcloud_links(session, url):
     url = normalize_hubcloud(url)
@@ -105,8 +103,8 @@ async def extract_hubcloud_links(session, url):
     hrefs = extract_links(html)
     hrefs.extend(extract_trs_links(html))
 
-    special = extract_special_links(html)
-    for _, v in special:
+    special_links = extract_special_links(html)
+    for _, v in special_links:
         hrefs.append(v)
 
     mirrors = []
@@ -114,31 +112,30 @@ async def extract_hubcloud_links(session, url):
     for link in hrefs:
         if not link.startswith("http"):
             continue
-
         link = clean_url(link)
 
         if is_zipdisk(link, html):
-            mirrors.append(("ZipDisk", link))
+            mirrors.append(("ZIPDISK", link))
             continue
 
         if "pixeldrain.dev/u" in link:
-            mirrors.append(("PixelDrain", link))
+            mirrors.append(("PIXELDRAIN", link))
             continue
 
         if "fsl-buckets" in link:
-            mirrors.append(("FSL-V2", link))
+            mirrors.append(("FSLV2", link))
             continue
 
         if "r2.dev" in link:
-            mirrors.append(("FSL-R2", link))
+            mirrors.append(("FSLR2", link))
             continue
 
         if "pixel.hubcdn.fans" in link:
-            mirrors.append(("Pixel-Alt", link))
+            mirrors.append(("PIXEL ALT", link))
             continue
 
         if "blockxpiracy" in link:
-            mirrors.append(("Mega", link))
+            mirrors.append(("MEGA", link))
             continue
 
         if "stranger-things" in link:
@@ -146,23 +143,23 @@ async def extract_hubcloud_links(session, url):
             continue
 
         if "gpdl.hubcdn.fans" in link:
-            mirrors.append(("10Gbps", link))
+            mirrors.append(("10GBPS", link))
             direct = await resolve_10gbps_chain(session, link)
             if direct:
-                mirrors.append(("10Gbps-Direct", direct))
+                mirrors.append(("10GBPS DIRECT", direct))
             continue
 
         if "trs.php" in link:
             final = await resolve_trs(session, link)
-            mirrors.append(("TRS", final))
+            mirrors.append(("TRS SERVER", final))
             continue
 
-    # dedupe
+    # ---------- Deduplicate ----------
     clean = {}
     for label, link in mirrors:
         clean[link] = label
 
-    final_list = [{"label": v, "url": k} for k, v in clean.items()]
+    final_list = [{"label": lbl, "url": url} for url, lbl in clean.items()]
 
     return {
         "title": title,
@@ -172,41 +169,50 @@ async def extract_hubcloud_links(session, url):
 
 
 # ================================================================
-# MULTI SCRAPER
+# MULTI-LINK PROCESSOR
 # ================================================================
 async def process_links(urls):
     async with aiohttp.ClientSession() as session:
-        results = []
+        out = []
         for url in urls:
-            results.append(await extract_hubcloud_links(session, url))
-        return results
+            out.append(await extract_hubcloud_links(session, url))
+        return out
 
 
 # ================================================================
-# FORMATTER
+# MESSAGE FORMATTER (GDFlix Style)
 # ================================================================
 def format_hub_message(d, message, elapsed):
+
     text = (
-        f"✅ **HubCloud Extracted:**\n\n"
-        f"📚 **Title:** {d['title']}\n"
-        f"💾 **Size:** {d['size']}\n\n"
-        f"🔗 **Mirrors:**\n"
+        f"┎ 📚 <b>Title :-</b> {d['title']}\n\n"
+        f"┠ 💾 <b>Size :-</b> {d['size']}\n"
+        f"┃\n"
     )
 
     for m in d["mirrors"]:
-        text += f"• **{m['label']}** → `{m['url']}`\n"
+        link_hidden = f'<a href="{m["url"]}">𝗟𝗜𝗡𝗞</a>'
+        text += f"┠ 🔗 <b>{m['label']}</b> :- {link_hidden}\n┃\n"
+
+    # Replace last ┠ with ┖
+    lines = text.split("\n")
+    for i in range(len(lines)-1, -1, -1):
+        if lines[i].startswith("┠"):
+            lines[i] = lines[i].replace("┠", "┖", 1)
+            break
+    text = "\n".join(lines)
 
     text += (
-        f"\n━━━━━━━━━━━\n"
-        f"⏱️ **Processed in {elapsed}s**\n\n"
-        f"👤 Requested by: {message.from_user.mention}"
+        "\n━━━━━━━✦✗✦━━━━━━━\n\n"
+        f"⏱️ <b>Bypassed in {elapsed} seconds</b>\n\n"
+        f"🙋 Requested By :- {message.from_user.mention} (#ID_{message.from_user.id})"
     )
 
     return text
 
 
 # ================================================================
-# URL EXTRACTOR
+# URL FINDER
 # ================================================================
 URL_RE = re.compile(r"https?://[^\s]+")
 
@@ -215,12 +221,11 @@ def extract_urls(text):
 
 
 # ================================================================
-# MAIN HANDLER WITH OWNER SUPPORT
+# MAIN COMMAND HANDLER
 # ================================================================
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hub_handler(client: Client, message: Message):
 
-    # OWNER CAN USE ANYWHERE
     if message.from_user.id != OWNER_ID:
         if str(message.chat.id) not in OFFICIAL_GROUPS:
             return await message.reply("❌ This command only works in our official group.")
@@ -231,7 +236,7 @@ async def hub_handler(client: Client, message: Message):
         urls = extract_urls(message.reply_to_message.text)
 
     if not urls:
-        return await message.reply("⚠️ Usage: /hub <url> OR reply with link(s).")
+        return await message.reply("⚠️ Usage: /hub <url> or reply with link(s).")
 
     urls = urls[:8]
 
@@ -243,4 +248,4 @@ async def hub_handler(client: Client, message: Message):
         elapsed = round(time.time() - start, 2)
 
         formatted = format_hub_message(data[0], message, elapsed)
-        await temp.edit(formatted)
+        await temp.edit(formatted, parse_mode="html")
