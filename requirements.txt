@@ -1,9 +1,9 @@
-aiohttp
-pyrogram
-TgCrypto
 requests==2.31.0
-beautifulsoup4
 lxml
 Pillow
 cloudscraper
-playwright
+pyrogram==2.0.106
+tgcrypto==1.2.5
+aiohttp==3.9.1
+beautifulsoup4==4.12.2
+cloudscraper==1.2.71  # Add this for better Cloudflare bypass
