@@ -1,66 +1,50 @@
 # plugins/hub.py
 from pyrogram import Client, filters
 from pyrogram.types import Message
-import aiohttp
+import requests
 import re
-import asyncio
 import time
-import random
-import cloudscraper
 from urllib.parse import urljoin, quote
 
 OFFICIAL_GROUPS = ["-1002311378229"]
 
-# ========================= CLOUDSCRAPER SETUP =========================
-def create_scraper():
-    """Create cloudscraper instance with proper settings"""
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'mobile': False,
-            'desktop': True,
-        },
-        interpreter='nodejs',
-        delay=10,
-        debug=False
-    )
-    
-    # Set headers
-    scraper.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-    })
-    
-    return scraper
+# ========================= REAL BROWSER HEADERS =========================
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+    "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+}
 
-# ========================= SYNC FETCH FUNCTION =========================
-def fetch_with_cloudscraper(url):
-    """Fetch page using cloudscraper (synchronous)"""
+# ========================= SIMPLE FETCH FUNCTION =========================
+def fetch_page(url):
+    """Simple fetch with proper headers"""
     try:
-        scraper = create_scraper()
-        response = scraper.get(url, timeout=30)
+        response = requests.get(url, headers=HEADERS, timeout=30)
         
-        # Check if Cloudflare challenge passed
+        # Check if we got a valid response
         if response.status_code == 200:
             return response.text, response.url
+        elif response.status_code in [403, 429, 503]:
+            # Cloudflare or rate limit
+            raise Exception(f"Access denied (HTTP {response.status_code}). Try again later.")
         else:
             raise Exception(f"HTTP {response.status_code}: {response.reason}")
             
+    except requests.exceptions.Timeout:
+        raise Exception("Request timeout. Try again.")
     except Exception as e:
-        raise Exception(f"Cloudscraper failed: {str(e)}")
+        raise Exception(f"Failed to fetch page: {str(e)}")
 
 # ========================= HELPER FUNCTIONS =========================
 def is_zipdisk(url, html):
@@ -91,14 +75,12 @@ def clean_url(url):
 
 def extract_special_links(html):
     patterns = {
-        "fsl_v2": r"https://cdn\.fsl-buckets\.life/[^\s\"']+\?token=[A-Za-z0-9_]+",
-        "fsl_r2": r"https://[A-Za-z0-9\.\-]+\.r2\.dev/[^\s\"']+\?token=[A-Za-z0-9_]+",
-        "pixel_alt": r"https://pixel\.hubcdn\.fans/\?id=[A-Za-z0-9:]+",
-        "pixeldrain": r"https://pixeldrain\.dev/u/[A-Za-z0-9]+",
-        "zipdisk": r"https://[A-Za-z0-9\.\-]+workers\.dev/[^\s\"']+\.zip",
-        "megaserver": r"https://mega\.blockxpiracy\.net/cs/g\?[^\s\"']+",
         "10gbps_gpdl": r"https://gpdl\.hubcdn\.fans/[^\s\"']+",
         "love_st": r"https://love\.stranger-things\.buzz/[^\s\"']+",
+        "pixeldrain": r"https://pixeldrain\.dev/u/[A-Za-z0-9]+",
+        "fsl_v2": r"https://cdn\.fsl-buckets\.life/[^\s\"']+\?token=[A-Za-z0-9_]+",
+        "pixel_alt": r"https://pixel\.hubcdn\.fans/\?id=[A-Za-z0-9:]+",
+        "megaserver": r"https://mega\.blockxpiracy\.net/cs/g\?[^\s\"']+",
     }
     found = []
     for name, pattern in patterns.items():
@@ -116,113 +98,63 @@ def extract_trs_links(html):
         trs.add("https://hubcloud.foo/re/" + x)
     return list(trs)
 
-async def resolve_10gbps_chain(session, url):
-    """Resolve 10Gbps links using cloudscraper"""
+def resolve_link(url):
+    """Resolve redirects"""
     try:
-        scraper = create_scraper()
-        response = scraper.get(url, timeout=30, allow_redirects=True)
-        final_url = response.url
-        
-        # extract ?link=REAL
-        m = re.search(r"link=([^&]+)", final_url)
-        if m:
-            return m.group(1)
-        
-        # Also try to get Google Drive link
-        if "drive.google.com" in final_url:
-            return final_url
-            
-    except Exception as e:
-        print(f"10Gbps resolve error: {e}")
-        return None
-    
-    return None
-
-async def resolve_trs(session, url):
-    """Resolve TRS links using cloudscraper"""
-    try:
-        scraper = create_scraper()
-        response = scraper.get(url, timeout=30, allow_redirects=True)
-        return str(response.url)
-    except Exception as e:
-        print(f"TRS resolve error: {e}")
+        response = requests.get(url, headers=HEADERS, allow_redirects=True, timeout=20)
+        return response.url
+    except:
         return url
 
 # ========================= MAIN SCRAPER =========================
-async def extract_hubcloud_links(target):
-    """Main extraction function"""
+def extract_hubcloud_links_sync(url):
+    """Synchronous extraction"""
     try:
-        target = normalize_hubcloud(target)
-        print(f"Fetching: {target}")
+        url = normalize_hubcloud(url)
+        print(f"Fetching: {url}")
         
-        # Use cloudscraper to fetch page
-        html, final_url = fetch_with_cloudscraper(target)
+        # Fetch page
+        html, final_url = fetch_page(url)
         
-        # Check if still blocked by Cloudflare
-        if "Just a moment" in html or "Checking your browser" in html or "Cloudflare" in html:
+        # Check for Cloudflare
+        if "Just a moment" in html or "Checking your browser" in html:
             return {
                 "success": False,
-                "error": "Cloudflare protection detected. Trying alternative method...",
+                "error": "Cloudflare protection detected. Try using a VPN or different network.",
                 "title": "Cloudflare Blocked",
                 "size": "Unknown",
-                "main_link": target,
+                "main_link": url,
                 "mirrors": []
             }
         
         # Extract title
         title_match = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
-        title = title_match.group(1).strip() if title_match else "Unknown"
+        title = title_match.group(1).strip() if title_match else "HubCloud Page"
         
         # Clean title
-        if "Just a moment" in title:
-            title = "HubCloud Page"
+        title = title.replace(" - HubCloud", "").replace(" | HubCloud", "")
         
         # Extract file size
         size_match = re.search(r"File Size<i[^>]*>(.*?)</i>", html, re.IGNORECASE | re.DOTALL)
         if size_match:
             size = re.sub(r"<.*?>", "", size_match.group(1)).strip()
         else:
-            # Alternative size patterns
-            size_patterns = [
-                r'size[:\s]*([\d\.]+\s*(GB|MB|KB))',
-                r'Size[:\s]*([\d\.]+\s*(GB|MB|KB))',
-                r'([\d\.]+\s*(GB|MB|KB))\s*size',
-                r'([\d\.]+\s*(GB|MB|KB))\s*Size'
-            ]
             size = "Unknown"
-            for pattern in size_patterns:
-                m = re.search(pattern, html, re.IGNORECASE)
-                if m:
-                    size = m.group(1)
-                    break
         
-        # Extract token if exists
-        token_match = re.search(r'href=[\'"]([^\'"]+token=[^\'"]+)[\'"]', html)
-        if token_match and "token=" not in final_url:
-            turl = token_match.group(1)
-            if not turl.startswith("http"):
-                turl = urljoin(target, turl)
-            try:
-                scraper = create_scraper()
-                token_response = scraper.get(turl, timeout=20)
-                html += token_response.text
-            except:
-                pass
-        
+        # Get all links
         hrefs = extract_links(html)
         
         # Add direct pattern matches
-        direct_patterns = [
-            r'(https://love\.stranger-things\.buzz[^"\'\s]+)',
-            r'(https://gpdl\.hubcdn\.fans[^"\'\s]+)',
-            r'(https://pixeldrain\.dev/u/[A-Za-z0-9]+)',
-            r'(https://cdn\.fsl-buckets\.life[^"\'\s]+\?token=[A-Za-z0-9_]+)',
-            r'(https://[A-Za-z0-9\.\-]+\.r2\.dev[^"\'\s]+\?token=[A-Za-z0-9_]+)',
-            r'(https://pixel\.hubcdn\.fans/\?id=[A-Za-z0-9:]+)',
-            r'(https://mega\.blockxpiracy\.net/cs/g\?[^"\'\s]+)',
+        patterns_to_find = [
+            r'https://gpdl\.hubcdn\.fans[^\s"\']+',
+            r'https://love\.stranger-things\.buzz[^\s"\']+',
+            r'https://pixeldrain\.dev/u/[A-Za-z0-9]+',
+            r'https://cdn\.fsl-buckets\.life[^\s"\']+\?token=[A-Za-z0-9_]+',
+            r'https://pixel\.hubcdn\.fans/\?id=[A-Za-z0-9:]+',
+            r'https://mega\.blockxpiracy\.net/cs/g\?[^\s"\']+',
         ]
         
-        for pattern in direct_patterns:
+        for pattern in patterns_to_find:
             matches = re.findall(pattern, html)
             hrefs.extend(matches)
         
@@ -259,10 +191,6 @@ async def extract_hubcloud_links(target):
                 mirrors.append({"label": "FSL-V2", "url": link})
                 continue
             
-            if "r2.dev" in link and "token=" in link:
-                mirrors.append({"label": "FSL-R2", "url": link})
-                continue
-            
             if "pixel.hubcdn.fans" in link:
                 mirrors.append({"label": "Pixel-Alt", "url": link})
                 continue
@@ -278,17 +206,16 @@ async def extract_hubcloud_links(target):
             # 10Gbps links
             if "gpdl.hubcdn.fans" in link:
                 mirrors.append({"label": "10Gbps", "url": link})
-                # Resolve direct link
-                direct = await resolve_10gbps_chain(None, link)
-                if direct and direct not in [m["url"] for m in mirrors]:
-                    mirrors.append({"label": "10Gbps-Direct", "url": direct})
+                # Try to resolve
+                resolved = resolve_link(link)
+                if resolved != link and "drive.google.com" in resolved:
+                    mirrors.append({"label": "Google Drive", "url": resolved})
                 continue
             
             # TRS links
             if "trs.php" in link:
-                final_trs = await resolve_trs(None, link)
-                if final_trs and final_trs not in [m["url"] for m in mirrors]:
-                    mirrors.append({"label": "TRS", "url": final_trs})
+                resolved = resolve_link(link)
+                mirrors.append({"label": "TRS", "url": resolved})
                 continue
         
         # Deduplicate
@@ -303,7 +230,7 @@ async def extract_hubcloud_links(target):
             "success": True,
             "title": title,
             "size": size,
-            "main_link": target,
+            "main_link": url,
             "mirrors": unique_mirrors
         }
         
@@ -314,7 +241,7 @@ async def extract_hubcloud_links(target):
             "error": str(e),
             "title": "Error",
             "size": "Unknown",
-            "main_link": target,
+            "main_link": url,
             "mirrors": []
         }
 
@@ -394,8 +321,8 @@ async def hubcloud_handler(client: Client, message: Message):
         
         start = time.time()
         
-        # Extract links using cloudscraper
-        data = await extract_hubcloud_links(url)
+        # Extract links (synchronous)
+        data = extract_hubcloud_links_sync(url)
         
         elapsed = round(time.time() - start, 2)
         
