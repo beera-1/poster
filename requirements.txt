@@ -2,7 +2,6 @@ pyrogram==2.0.106
 tgcrypto==1.2.5
 aiohttp==3.9.1
 brotli==1.1.0
-brotli-python==1.1.0
 beautifulsoup4==4.12.2
 requests==2.31.0
 cloudscraper==1.2.71
