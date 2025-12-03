@@ -6,72 +6,61 @@ import re
 import asyncio
 import time
 import random
+import cloudscraper
 from urllib.parse import urljoin, quote
 
 OFFICIAL_GROUPS = ["-1002311378229"]
 
-# ========================= REAL USER AGENTS =========================
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-]
-
-def get_random_headers():
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0",
-    }
-
-# ========================= CLOUDFLARE BYPASS =========================
-async def bypass_cloudflare(session, url):
-    """Try to bypass Cloudflare protection"""
-    headers = get_random_headers()
+# ========================= CLOUDSCRAPER SETUP =========================
+def create_scraper():
+    """Create cloudscraper instance with proper settings"""
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'mobile': False,
+            'desktop': True,
+        },
+        interpreter='nodejs',
+        delay=10,
+        debug=False
+    )
     
-    # First try with normal request
+    # Set headers
+    scraper.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+    })
+    
+    return scraper
+
+# ========================= SYNC FETCH FUNCTION =========================
+def fetch_with_cloudscraper(url):
+    """Fetch page using cloudscraper (synchronous)"""
     try:
-        async with session.get(url, headers=headers, timeout=30) as response:
-            html = await response.text()
-            final_url = str(response.url)
+        scraper = create_scraper()
+        response = scraper.get(url, timeout=30)
+        
+        # Check if Cloudflare challenge passed
+        if response.status_code == 200:
+            return response.text, response.url
+        else:
+            raise Exception(f"HTTP {response.status_code}: {response.reason}")
             
-            # Check if Cloudflare challenge is present
-            if "Checking your browser before accessing" in html or "Just a moment" in html:
-                # Add more browser-like headers
-                headers.update({
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                    "Sec-Ch-Ua-Mobile": "?0",
-                    "Sec-Ch-Ua-Platform": '"Windows"',
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Upgrade-Insecure-Requests": "1",
-                })
-                
-                # Try again with updated headers
-                async with session.get(url, headers=headers, timeout=30) as response2:
-                    html = await response2.text()
-                    final_url = str(response2.url)
-            
-            return html, final_url
     except Exception as e:
-        raise Exception(f"Cloudflare bypass failed: {str(e)}")
+        raise Exception(f"Cloudscraper failed: {str(e)}")
 
 # ========================= HELPER FUNCTIONS =========================
 def is_zipdisk(url, html):
@@ -128,19 +117,20 @@ def extract_trs_links(html):
     return list(trs)
 
 async def resolve_10gbps_chain(session, url):
+    """Resolve 10Gbps links using cloudscraper"""
     try:
-        headers = get_random_headers()
-        async with session.get(url, headers=headers, allow_redirects=True, timeout=30) as r:
-            final = str(r.url)
+        scraper = create_scraper()
+        response = scraper.get(url, timeout=30, allow_redirects=True)
+        final_url = response.url
         
         # extract ?link=REAL
-        m = re.search(r"link=([^&]+)", final)
+        m = re.search(r"link=([^&]+)", final_url)
         if m:
             return m.group(1)
         
         # Also try to get Google Drive link
-        if "drive.google.com" in final:
-            return final
+        if "drive.google.com" in final_url:
+            return final_url
             
     except Exception as e:
         print(f"10Gbps resolve error: {e}")
@@ -149,28 +139,30 @@ async def resolve_10gbps_chain(session, url):
     return None
 
 async def resolve_trs(session, url):
+    """Resolve TRS links using cloudscraper"""
     try:
-        headers = get_random_headers()
-        async with session.get(url, headers=headers, allow_redirects=True, timeout=30) as r:
-            return str(r.url)
+        scraper = create_scraper()
+        response = scraper.get(url, timeout=30, allow_redirects=True)
+        return str(response.url)
     except Exception as e:
         print(f"TRS resolve error: {e}")
         return url
 
 # ========================= MAIN SCRAPER =========================
-async def extract_hubcloud_links(session, target):
+async def extract_hubcloud_links(target):
+    """Main extraction function"""
     try:
         target = normalize_hubcloud(target)
         print(f"Fetching: {target}")
         
-        # Use Cloudflare bypass
-        html, final_url = await bypass_cloudflare(session, target)
+        # Use cloudscraper to fetch page
+        html, final_url = fetch_with_cloudscraper(target)
         
         # Check if still blocked by Cloudflare
-        if "Just a moment" in html or "Checking your browser" in html:
+        if "Just a moment" in html or "Checking your browser" in html or "Cloudflare" in html:
             return {
                 "success": False,
-                "error": "Cloudflare protection detected. Please try again later.",
+                "error": "Cloudflare protection detected. Trying alternative method...",
                 "title": "Cloudflare Blocked",
                 "size": "Unknown",
                 "main_link": target,
@@ -183,7 +175,7 @@ async def extract_hubcloud_links(session, target):
         
         # Clean title
         if "Just a moment" in title:
-            title = "Cloudflare Protected Page"
+            title = "HubCloud Page"
         
         # Extract file size
         size_match = re.search(r"File Size<i[^>]*>(.*?)</i>", html, re.IGNORECASE | re.DOTALL)
@@ -211,8 +203,9 @@ async def extract_hubcloud_links(session, target):
             if not turl.startswith("http"):
                 turl = urljoin(target, turl)
             try:
-                async with session.get(turl, headers=get_random_headers(), timeout=20) as r2:
-                    html += await r2.text()
+                scraper = create_scraper()
+                token_response = scraper.get(turl, timeout=20)
+                html += token_response.text
             except:
                 pass
         
@@ -286,14 +279,14 @@ async def extract_hubcloud_links(session, target):
             if "gpdl.hubcdn.fans" in link:
                 mirrors.append({"label": "10Gbps", "url": link})
                 # Resolve direct link
-                direct = await resolve_10gbps_chain(session, link)
+                direct = await resolve_10gbps_chain(None, link)
                 if direct and direct not in [m["url"] for m in mirrors]:
                     mirrors.append({"label": "10Gbps-Direct", "url": direct})
                 continue
             
             # TRS links
             if "trs.php" in link:
-                final_trs = await resolve_trs(session, link)
+                final_trs = await resolve_trs(None, link)
                 if final_trs and final_trs not in [m["url"] for m in mirrors]:
                     mirrors.append({"label": "TRS", "url": final_trs})
                 continue
@@ -401,12 +394,8 @@ async def hubcloud_handler(client: Client, message: Message):
         
         start = time.time()
         
-        # Create session with proper timeout
-        timeout = aiohttp.ClientTimeout(total=60)
-        connector = aiohttp.TCPConnector(ssl=False)
-        
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            data = await extract_hubcloud_links(session, url)
+        # Extract links using cloudscraper
+        data = await extract_hubcloud_links(url)
         
         elapsed = round(time.time() - start, 2)
         
