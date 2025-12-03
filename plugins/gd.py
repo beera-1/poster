@@ -1,362 +1,257 @@
-# hubcloud_plugin.py
-import nest_asyncio
-nest_asyncio.apply()
-
+# gd_plugin.py
 from pyrogram import Client, filters
 from pyrogram.types import Message
-import aiohttp
+import requests
 import re
-import asyncio
+from bs4 import BeautifulSoup
+import urllib.parse
 import time
-from urllib.parse import urljoin, quote
 
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# --------------------------------------------------------
-# ZIPDISK DETECTOR
-# --------------------------------------------------------
-def is_zipdisk(url, html):
-    u = url.lower()
-    if any(x in u for x in ["workers.dev", "ddl", "cloudserver", "zipdisk"]):
-        return True
-    if "zipdisk" in html.lower():
-        return True
-    if re.search(r"ddl\d+\.", u):
-        return True
-    if re.search(r"/[0-9a-f]{40,}/", u):
-        return True
-    if u.endswith(".zip") and "workers.dev" in u:
-        return True
-    return False
 
-# --------------------------------------------------------
-# Normalize URL
-# --------------------------------------------------------
-def normalize_hubcloud(url):
-    return re.sub(r"hubcloud\.(one|fyi)", "hubcloud.foo", url)
 
-# --------------------------------------------------------
-# Extract href links
-# --------------------------------------------------------
-def extract_links(html):
-    return re.findall(r'href=[\'"]([^\'"]+)[\'"]', html)
+# ========================= NEW GOOGLE LINK FETCHER =========================
 
-# --------------------------------------------------------
-# UNIVERSAL SAFE URL CLEANER (FIXES SPACES)
-# --------------------------------------------------------
-def clean_url(url):
-    try:
-        return quote(url, safe=":/?=&%.-_A-Za-z0-9")
-    except:
-        return url
-
-# --------------------------------------------------------
-# SPECIAL REGEX EXTRACTOR
-# --------------------------------------------------------
-def extract_special_links(html):
-    patterns = {
-        "fsl_v2": r"https://cdn\.fsl-buckets\.life/[^\s\"']+\?token=[A-Za-z0-9_]+",
-        "fsl_r2": r"https://[A-Za-z0-9\.\-]+\.r2\.dev/[^\s\"']+\?token=[A-Za-z0-9_]+",
-        "pixel_alt": r"https://pixel\.hubcdn\.fans/\?id=[A-Za-z0-9:]+",
-        "pixeldrain": r"https://pixeldrain\.dev/u/[A-Za-z0-9]+",
-        "zipdisk": r"https://[A-Za-z0-9\.\-]+workers\.dev/[^\s\"']+\.zip",
-        "megaserver": r"https://mega\.blockxpiracy\.net/cs/g\?[^\s\"']+",
-    }
-    found = []
-    for name, pattern in patterns.items():
-        for link in re.findall(pattern, html):
-            found.append((name, link))
-    return found
-
-# --------------------------------------------------------
-# TRS EXTRACTOR
-# --------------------------------------------------------
-def extract_trs_links(html):
-    trs = set()
-    trs.update(re.findall(r"window\.location\.href\s*=\s*'([^']*trs\.php[^']*)'", html))
-    trs.update(re.findall(r'href=[\'"]([^\'"]*trs\.php[^\'"]*)[\'"]', html))
-    trs.update(re.findall(r"(https?://[^\s\"']*trs\.php[^\s\"']*)", html))
-    xs_matches = re.findall(r"trs\.php\?xs=[A-Za-z0-9=]+", html)
-    for x in xs_matches:
-        trs.add("https://hubcloud.foo/re/" + x)
-    return list(trs)
-
-# --------------------------------------------------------
-# ⭐ NEW → 10Gbps FINAL GOOGLE-LINK RESOLVER
-# --------------------------------------------------------
-async def resolve_10gbps_chain(session, url):
-    try:
-        async with session.get(url, headers=HEADERS, allow_redirects=True) as r:
-            final = str(r.url)
-        m = re.search(r"link=([^&]+)", final)
-        if m:
-            return m.group(1)
-    except:
+def clean_google_link(link):
+    """Remove fastcdn prefix if exists."""
+    if not link:
         return None
-    return None
+    # (KEEP AS ORIGINAL — ONLY for Google Video, NOT Cloud)
+    link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
+    return link
 
-# --------------------------------------------------------
-# TRS FINAL REDIRECT RESOLVER
-# --------------------------------------------------------
-async def resolve_trs(session, url):
-    try:
-        async with session.get(url, headers=HEADERS, allow_redirects=True) as r:
-            return str(r.url)
-    except:
-        return url
 
-# --------------------------------------------------------
-# MAIN SCRAPER
-# --------------------------------------------------------
-async def extract_hubcloud_links(session, target):
-    try:
-        target = normalize_hubcloud(target)
-        
-        async with session.get(target, headers=HEADERS) as r:
-            html = await r.text()
-            final_url = str(r.url)
-        
-        title = re.search(r"<title>(.*?)</title>", html)
-        title = title.group(1) if title else "Unknown"
-        
-        size_match = re.search(r"File Size<i[^>]*>(.*?)</i>", html)
-        size = re.sub(r"<.*?>", "", size_match.group(1)).strip() if size_match else "Unknown"
-        
-        token = re.search(r'href=[\'"]([^\'"]+token=[^\'"]+)[\'"]', html)
-        if token and "token=" not in final_url:
-            turl = token.group(1)
-            if not turl.startswith("http"):
-                turl = urljoin(target, turl)
-            async with session.get(turl) as r2:
-                html += await r2.text()
-        
-        hrefs = extract_links(html)
-        
-        m = re.search(r'(https://love\.stranger-things\.buzz[^"]+)', html)
-        if m:
-            hrefs.append(m.group(1))
-        
-        m = re.search(r'(https://gpdl\.hubcdn\.fans[^"]+)', html)
-        if m:
-            hrefs.append(m.group(1))
-        
-        m = re.search(r'https://pixeldrain\.dev/u/[A-Za-z0-9]+', html)
-        if m:
-            hrefs.append(m.group(0))
-        
-        trs_links = extract_trs_links(html)
-        hrefs.extend(trs_links)
-        
-        special_links = extract_special_links(html)
-        for name, link in special_links:
-            hrefs.append(link)
-        
-        mirrors = []
-        for link in hrefs:
-            if not link.startswith("http"):
-                continue
-            
-            link = clean_url(link)
-            
-            if is_zipdisk(link, html):
-                mirrors.append({"label": "zipdiskserver", "url": link})
-                continue
-            
-            if "pixeldrain.dev/u" in link:
-                mirrors.append({"label": "pixelserver", "url": link})
-                continue
-            
-            if "fsl-buckets" in link:
-                mirrors.append({"label": "FSL-V2", "url": link})
-                continue
-            
-            if "r2.dev" in link:
-                mirrors.append({"label": "FSL-R2", "url": link})
-                continue
-            
-            if "pixel.hubcdn.fans" in link:
-                mirrors.append({"label": "Pixel-Alt", "url": link})
-                continue
-            
-            if "blockxpiracy" in link:
-                mirrors.append({"label": "MegaServer", "url": link})
-                continue
-            
-            if "stranger-things" in link:
-                mirrors.append({"label": "FSL", "url": link})
-                continue
-            
-            # ⭐ NORMAL 10Gbps link
-            if "gpdl.hubcdn.fans" in link:
-                mirrors.append({"label": "10Gbps", "url": link})
-                # ⭐ NEW: ADD GOOGLE DIRECT
-                direct = await resolve_10gbps_chain(session, link)
-                if direct:
-                    mirrors.append({"label": "10Gbps-Direct", "url": direct})
-                continue
-            
-            # ⭐⭐⭐ FIXED → TRS → RESOLVE → MEGA DIRECT LINK ⭐⭐⭐
-            if "trs.php" in link:
-                final_trs = await resolve_trs(session, link)
-                mirrors.append({"label": "TRS", "url": final_trs})
-                continue
-        
-        # Dedupe
-        out = []
-        seen = set()
-        for m in mirrors:
-            if m["url"] not in seen:
-                seen.add(m["url"])
-                out.append(m)
-        
-        return {
-            "success": True,
-            "title": title,
-            "size": size,
-            "main_link": target,
-            "mirrors": out
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-# --------------------------------------------------------
-# FORMAT HELPERS
-# --------------------------------------------------------
 def format_href(link):
     """Format link with <a href> and display 𝗟𝗜𝗡𝗞"""
     if not link:
         return "Not Found"
     return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
 
-def format_mirror(mirror):
-    label = mirror["label"]
-    url = mirror["url"]
-    return f"┃ {label}: {format_href(url)}"
 
-# --------------------------------------------------------
-# FORMAT MESSAGE
-# --------------------------------------------------------
-def format_hubcloud_message(data, message, elapsed):
-    if not data["success"]:
-        return f"❌ Error: {data['error']}"
-    
-    text = (
-        f"✅ **HubCloud Extracted Links:**\n\n"
-        
-        f"┎ 📚 **Title:**\n"
-        f"┃ {data['title']}\n\n"
-        
-        f"┠ 💾 **Size:**\n"
-        f"┃ {data['size']}\n\n"
-        
-        f"┠ 🔗 **Source:**\n"
-        f"┃ {format_href(data['main_link'])}\n\n"
-    )
-    
-    if data["mirrors"]:
-        text += f"┠ ⚡ **Available Mirrors ({len(data['mirrors'])}):**\n"
-        for i, mirror in enumerate(data["mirrors"], 1):
-            text += format_mirror(mirror) + "\n"
-        text += "\n"
+def get_instantdl(gd_url):
+    try:
+        r = requests.get(gd_url, headers=HEADERS, timeout=15)
+    except:
+        return None
+
+    match = re.search(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+", r.text)
+    return match.group(0) if match else None
+
+
+
+def get_google_from_instant(instant_url):
+    if not instant_url:
+        return None
+    try:
+        r = requests.get(instant_url, headers=HEADERS, allow_redirects=True, timeout=20)
+    except:
+        return None
+
+    final = r.url
+
+    # 1️⃣ Direct Google Link
+    if "video-downloads.googleusercontent.com" in final:
+        return clean_google_link(final)
+
+    # 2️⃣ FastCDN → extract ONLY google link
+    if "fastcdn-dl.pages.dev" in final and "url=" in final:
+        pure = final.split("url=")[-1]
+        if "video-downloads.googleusercontent.com" in pure:
+            return clean_google_link(pure)
+
+    return None
+
+
+
+# ========================= HELPERS =========================
+
+def fetch_html(url):
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        return r.text, r.url
+    except:
+        return "", url
+
+
+def scan(text, pattern):
+    m = re.search(pattern, text)
+    return m.group(0) if m else None
+
+
+
+def try_zfile_fallback(final_url):
+    file_id = final_url.split("/file/")[-1]
+
+    folders = [
+        "2870627993","8213224819","7017347792","5011320428",
+        "5069651375","3279909168","9065812244","1234567890",
+        "1111111111","8841111600"
+    ]
+
+    for folder in folders:
+        url = f"https://new7.gdflix.net/zfile/{folder}/{file_id}"
+        html, _ = fetch_html(url)
+        found = scan(html, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
+        if found:
+            return found
+    return None
+
+
+
+# ========================= SCRAPER =========================
+
+def scrape_gdflix(url):
+    html, final_url = fetch_html(url)
+    soup = BeautifulSoup(html, "html.parser")
+    text = html
+
+    # Extract real Google link
+    instantdl = get_instantdl(url)
+    google_video = get_google_from_instant(instantdl)
+
+    pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
+    if pix:
+        pix = pix.replace("?embed", "")
+
+    tg1 = scan(text, r"https://filesgram\.site/\?start=[A-Za-z0-9_]+&bot=gdflix[0-9_]*bot")
+    tg2 = scan(text, r"https://t\.me/gdflix[0-9_]*bot\?start=[A-Za-z0-9_=]+")
+    tg3 = scan(text, r"https://t\.me/[A-Za-z0-9_/?=]+")
+    telegram_link = tg1 or tg2 or tg3
+
+    data = {
+        "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
+        "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
+
+        "instantdl": format_href(google_video),
+    }
+
+    # ========================= CLEAN CLOUD DOWNLOAD (ONLY PREFIX REMOVED) =========================
+    cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
+    if cloud_raw:
+        # remove ONLY the prefix — nothing else touched
+        cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
+        cleaned_cloud = urllib.parse.unquote(cleaned_cloud)  # decode URL
+        data["cloud_resume"] = format_href(cleaned_cloud)
     else:
-        text += f"┠ ⚡ **Mirrors:**\n┃ No mirrors found\n\n"
-    
-    text += (
-        f"┖ ⏱️ **Extracted in {elapsed} seconds**\n\n"
-        
+        data["cloud_resume"] = None
+    # ==============================================================================================
+
+    data.update({
+        "pixeldrain": format_href(pix),
+        "telegram": format_href(telegram_link),
+        "drivebot": format_href(scan(text, r"https://drivebot\.sbs/download\?id=[^\"]+")),
+        "zfile": [],
+        "gofile": format_href(None),
+        "final_url": final_url
+    })
+
+    # ZFILE
+    direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
+    if direct:
+        zhtml, _ = fetch_html(direct)
+        found = scan(zhtml, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
+        if found:
+            data["zfile"].append(format_href(found))
+
+    if not data["zfile"]:
+        fb = try_zfile_fallback(final_url)
+        if fb:
+            data["zfile"].append(format_href(fb))
+
+    # GoFile
+    validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
+    if validate:
+        try:
+            vh = requests.get(validate, headers=HEADERS).text
+            gf = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
+            data["gofile"] = format_href(gf)
+        except:
+            pass
+
+    return data
+
+
+
+# ========================= FORMAT MESSAGE =========================
+
+def format_bypass_message(d, message, elapsed):
+    text = (
+        f"✅ **GDFlix Extracted Links:**\n\n"
+
+        f"┎ 📚 **Title:**\n"
+        f"┃ {d['title']}\n\n"
+
+        f"┠ 💾 **Size:**\n"
+        f"┃ {d['size']}\n\n"
+
+        f"┠ 🔗 **Google Video:**\n"
+        f"┃ {d['instantdl']}\n\n"
+
+        f"┠ 🔗 **Cloud Download:**\n"
+        f"┃ {d['cloud_resume'] or 'Not Found'}\n\n"
+
+        f"┠ 🔗 **Telegram File:**\n"
+        f"┃ {d['telegram'] or 'Not Found'}\n\n"
+
+        f"┠ 🔗 **GoFile:**\n"
+        f"┃ {d['gofile'] or 'Not Found'}\n\n"
+
+        f"┠ 🔗 **PixelDrain:**\n"
+        f"┃ {d['pixeldrain'] or 'Not Found'}\n\n"
+
+        f"┠ 🔗 **DriveBot:**\n"
+        f"┃ {d['drivebot'] or 'Not Found'}\n\n"
+
+        f"┖ 🔗 **ZFile:**\n"
+        f"  {(d['zfile'][0] if d['zfile'] else 'Not Found')}\n\n"
+
         f"━━━━━━━━✦✗✦━━━━━━━━\n\n"
+        f"⏱️ **Bypassed in {elapsed} seconds**\n\n"
+
         f"<b>Requested By :-</b> {message.from_user.mention}\n"
         f"<b>(#ID_{message.from_user.id})</b>"
     )
-    
     return text
 
-# --------------------------------------------------------
-# URL EXTRACTOR
-# --------------------------------------------------------
+
+
+# ========================= URL EXTRACTOR =========================
+
 URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_links_from_text(text):
     return URL_RE.findall(text or "")
 
-# --------------------------------------------------------
-# MAIN COMMAND
-# --------------------------------------------------------
-@Client.on_message(filters.command(["hub", "hubcloud"]))
-async def hubcloud_handler(client: Client, message: Message):
-    
-    if str(message.chat.id) not in OFFICIAL_GROUPS:
-        return await message.reply("❌ This command only works in our official group.")
-    
-    parts = message.text.split()
-    links = extract_links_from_text(" ".join(parts[1:]))
-    
-    if not links and message.reply_to_message:
-        links = extract_links_from_text(message.reply_to_message.text or "")
-    
-    if not links:
-        return await message.reply("⚠️ Usage: /hub <link1> <link2> … OR reply to a message containing links.")
-    
-    links = links[:5]  # Limit to 5 links at once
-    
-    for i, url in enumerate(links, 1):
-        temp = await message.reply(f"⏳ ({i}/{len(links)}) Fetching from HubCloud: {url}")
-        
-        start = time.time()
-        
-        async with aiohttp.ClientSession() as session:
-            data = await extract_hubcloud_links(session, url)
-        
-        elapsed = round(time.time() - start, 2)
-        
-        formatted = format_hubcloud_message(data, message, elapsed)
-        await temp.edit(formatted, disable_web_page_preview=True)
 
-# --------------------------------------------------------
-# MULTI PROCESS COMMAND (Optional)
-# --------------------------------------------------------
-@Client.on_message(filters.command(["hubmulti", "batchhub"]))
-async def hubmulti_handler(client: Client, message: Message):
-    
+
+# ========================= MAIN COMMAND =========================
+
+@Client.on_message(filters.command(["gd", "gdflix"]))
+async def gdflix_handler(client: Client, message: Message):
+
     if str(message.chat.id) not in OFFICIAL_GROUPS:
         return await message.reply("❌ This command only works in our official group.")
-    
+
     parts = message.text.split()
     links = extract_links_from_text(" ".join(parts[1:]))
-    
+
     if not links and message.reply_to_message:
         links = extract_links_from_text(message.reply_to_message.text or "")
-    
+
     if not links:
-        return await message.reply("⚠️ Usage: /hubmulti <link1> <link2> … OR reply to a message containing links.")
-    
-    links = links[:3]  # Limit to 3 for batch processing
-    
-    processing_msg = await message.reply(f"🔍 Processing {len(links)} HubCloud links...")
-    
-    all_results = []
-    async with aiohttp.ClientSession() as session:
-        for url in links:
-            result = await extract_hubcloud_links(session, url)
-            if result["success"]:
-                all_results.append(result)
-    
-    response = f"📊 **Batch Results ({len(all_results)}/{len(links)} successful)**\n\n"
-    
-    for i, result in enumerate(all_results, 1):
-        response += f"**{i}. {result['title']}**\n"
-        response += f"Size: {result['size']}\n"
-        response += f"Mirrors: {len(result['mirrors'])} found\n"
-        if result["mirrors"]:
-            best_mirror = result["mirrors"][0]
-            response += f"Best: {best_mirror['label']} - {format_href(best_mirror['url'])}\n"
-        response += "━━━━━━━━━━\n\n"
-    
-    response += f"<b>Requested By:</b> {message.from_user.mention}"
-    
-    await processing_msg.edit(response, disable_web_page_preview=True)
+        return await message.reply("⚠️ Usage: /gd <link1> <link2> … OR reply to a message containing links.")
+
+    links = links[:8]
+
+    for i, url in enumerate(links, 1):
+        temp = await message.reply(f"⏳ ({i}/{len(links)}) Bypassing: {url}")
+
+        start = time.time()
+        data = scrape_gdflix(url)
+        elapsed = round(time.time() - start, 2)
+
+        formatted = format_bypass_message(data, message, elapsed)
+        await temp.edit(formatted)
