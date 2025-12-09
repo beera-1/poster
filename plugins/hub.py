@@ -36,8 +36,8 @@ async def hubcloud_old_handler(client: Client, message: Message):
     if not hubcloud_urls:
         await message.reply(
             "❌ No HubCloud links found.\n\nUsage:\n"
-            "`/hub_old <hubcloud_url>`\n"
-            "or reply with `/hub_old` to a message containing HubCloud links."
+            "`/hub <hubcloud_url>`\n"
+            "or reply with `/hub` to a message containing HubCloud links."
         )
         return
 
