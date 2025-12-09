@@ -8,7 +8,7 @@ API_URL = "https://hub-eight-ruddy.vercel.app/api/bypaas/hubcloud.php"
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 
-@Client.on_message(filters.command(["hub_old", "hubcloud_old"]))
+@Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hubcloud_old_handler(client: Client, message: Message):
 
     # ------------------ Authorization Check ------------------
