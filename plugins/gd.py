@@ -8,37 +8,26 @@ import urllib.parse
 import time
 
 OFFICIAL_GROUPS = ["-1002311378229"]
-
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-
-
 
 # ========================= NEW GOOGLE LINK FETCHER =========================
 
 def clean_google_link(link):
-    """Remove fastcdn prefix if exists."""
     if not link:
         return None
-    link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
-    return link
-
+    return re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
 
 def format_href(link):
     if not link:
         return "Not Found"
     return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
 
-
 def get_instantdl(gd_url):
     try:
         r = requests.get(gd_url, headers=HEADERS, timeout=15)
     except:
         return None
-
-    match = re.search(r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+", r.text)
-    return match.group(0) if match else None
-
-
+    return scan(r.text, r"https://instant\.busycdn\.cfd/[A-Za-z0-9:]+")
 
 def get_google_from_instant(instant_url):
     if not instant_url:
@@ -61,7 +50,6 @@ def get_google_from_instant(instant_url):
     return None
 
 
-
 # ========================= HELPERS =========================
 
 def fetch_html(url):
@@ -71,22 +59,18 @@ def fetch_html(url):
     except:
         return "", url
 
-
 def scan(text, pattern):
     m = re.search(pattern, text)
     return m.group(0) if m else None
 
 
-
 def try_zfile_fallback(final_url):
     file_id = final_url.split("/file/")[-1]
-
     folders = [
         "2870627993","8213224819","7017347792","5011320428",
         "5069651375","3279909168","9065812244","1234567890",
         "1111111111","8841111600"
     ]
-
     for folder in folders:
         url = f"https://new7.gdflix.net/zfile/{folder}/{file_id}"
         html, _ = fetch_html(url)
@@ -94,7 +78,6 @@ def try_zfile_fallback(final_url):
         if found:
             return found
     return None
-
 
 
 # ========================= SCRAPER =========================
@@ -119,14 +102,14 @@ def scrape_gdflix(url):
     data = {
         "title": soup.find("title").text.strip() if soup.find("title") else "Unknown",
         "size": scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown",
-
         "instantdl": format_href(google_video),
     }
 
     cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if cloud_raw:
-        cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
-        cleaned_cloud = urllib.parse.unquote(cleaned_cloud)
+        cleaned_cloud = urllib.parse.unquote(
+            re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
+        )
         data["cloud_resume"] = format_href(cleaned_cloud)
     else:
         data["cloud_resume"] = None
@@ -140,42 +123,40 @@ def scrape_gdflix(url):
         "final_url": final_url
     })
 
+    # ZFile
     direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
     if direct:
         zhtml, _ = fetch_html(direct)
         found = scan(zhtml, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
         if found:
             data["zfile"].append(format_href(found))
-
-    if not data["zfile"]:
+    else:
         fb = try_zfile_fallback(final_url)
         if fb:
             data["zfile"].append(format_href(fb))
 
-    # ========================= FIXED GOFILE START =========================
+    # ==========================================================
+    #                FIXED GOFILE (3-STEP METHOD)
+    # ==========================================================
     gf_final = None
 
-    # Step 1 → find first mirror
-    mirror1 = scan(text, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
-    if mirror1:
-        try:
-            m1_html, _ = fetch_html(mirror1)
+    # STEP 1 → multiup.php link
+    multiup = scan(text, r"https://new9\.gdflix\.net/realtime/multiup\.php\?upload=[A-Za-z0-9]+")
+    if multiup:
+        m1_html, _ = fetch_html(multiup)
 
-            # Step 2 → find second mirror
-            mirror2 = scan(m1_html, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
-            if mirror2 and mirror2 != mirror1:
-                m2_html, _ = fetch_html(mirror2)
+        # STEP 2 → goflix mirror link
+        mirror = scan(m1_html, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
+        if mirror:
+            m2_html, _ = fetch_html(mirror)
 
-                # Step 3 → extract final GoFile
-                gf_final = scan(m2_html, r"https://gofile\.io/d/[A-Za-z0-9]+")
-        except:
-            pass
+            # STEP 3 → final GoFile link inside mirror page
+            gf_final = scan(m2_html, r"https://gofile\.io/d/[A-Za-z0-9]+")
 
     data["gofile"] = format_href(gf_final)
-    # ========================= FIXED GOFILE END =========================
+    # ==========================================================
 
     return data
-
 
 
 # ========================= FORMAT MESSAGE =========================
@@ -183,54 +164,28 @@ def scrape_gdflix(url):
 def format_bypass_message(d, message, elapsed):
     text = (
         f"✅ **GDFlix Extracted Links:**\n\n"
-
-        f"┎ 📚 **Title:**\n"
-        f"┃ {d['title']}\n\n"
-
-        f"┠ 💾 **Size:**\n"
-        f"┃ {d['size']}\n\n"
-
-        f"┠ 🔗 **Google Video:**\n"
-        f"┃ {d['instantdl']}\n\n"
-
-        f"┠ 🔗 **Cloud Download:**\n"
-        f"┃ {d['cloud_resume'] or 'Not Found'}\n\n"
-
-        f"┠ 🔗 **Telegram File:**\n"
-        f"┃ {d['telegram'] or 'Not Found'}\n\n"
-
-        f"┠ 🔗 **GoFile:**\n"
-        f"┃ {d['gofile'] or 'Not Found'}\n\n"
-
-        f"┠ 🔗 **PixelDrain:**\n"
-        f"┃ {d['pixeldrain'] or 'Not Found'}\n\n"
-
-        f"┠ 🔗 **DriveBot:**\n"
-        f"┃ {d['drivebot'] or 'Not Found'}\n\n"
-
-        f"┖ 🔗 **ZFile:**\n"
-        f"  {(d['zfile'][0] if d['zfile'] else 'Not Found')}\n\n"
-
+        f"┎ 📚 **Title:**\n┃ {d['title']}\n\n"
+        f"┠ 💾 **Size:**\n┃ {d['size']}\n\n"
+        f"┠ 🔗 **Google Video:**\n┃ {d['instantdl']}\n\n"
+        f"┠ 🔗 **Cloud Download:**\n┃ {d['cloud_resume']}\n\n"
+        f"┠ 🔗 **Telegram File:**\n┃ {d['telegram']}\n\n"
+        f"┠ 🔗 **GoFile:**\n┃ {d['gofile']}\n\n"
+        f"┠ 🔗 **PixelDrain:**\n┃ {d['pixeldrain']}\n\n"
+        f"┠ 🔗 **DriveBot:**\n┃ {d['drivebot']}\n\n"
+        f"┖ 🔗 **ZFile:**\n  {(d['zfile'][0] if d['zfile'] else 'Not Found')}\n\n"
         f"━━━━━━━━✦✗✦━━━━━━━━\n\n"
-        f"⏱️ **Bypassed in {elapsed} seconds**\n\n"
-
-        f"<b>Requested By :-</b> {message.from_user.mention}\n"
-        f"<b>(#ID_{message.from_user.id})</b>"
+        f"⏱️ Bypassed in {elapsed} sec\n"
+        f"<b>Requested By:</b> {message.from_user.mention}"
     )
     return text
 
 
-
-# ========================= URL EXTRACTOR =========================
+# ========================= COMMAND =========================
 
 URL_RE = re.compile(r"https?://[^\s]+")
 
 def extract_links_from_text(text):
     return URL_RE.findall(text or "")
-
-
-
-# ========================= MAIN COMMAND =========================
 
 @Client.on_message(filters.command(["gd", "gdflix"]))
 async def gdflix_handler(client: Client, message: Message):
@@ -245,16 +200,15 @@ async def gdflix_handler(client: Client, message: Message):
         links = extract_links_from_text(message.reply_to_message.text or "")
 
     if not links:
-        return await message.reply("⚠️ Usage: /gd <link1> <link2> … OR reply to a message containing links.")
+        return await message.reply("⚠️ Usage: /gd <link>")
 
     links = links[:8]
 
     for i, url in enumerate(links, 1):
-        temp = await message.reply(f"⏳ ({i}/{len(links)}) Bypassing: {url}")
+        temp = await message.reply(f"⏳ ({i}/{len(links)}) Processing...")
 
         start = time.time()
         data = scrape_gdflix(url)
         elapsed = round(time.time() - start, 2)
 
-        formatted = format_bypass_message(data, message, elapsed)
-        await temp.edit(formatted)
+        await temp.edit(format_bypass_message(data, message, elapsed))
