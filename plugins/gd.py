@@ -19,13 +19,11 @@ def clean_google_link(link):
     """Remove fastcdn prefix if exists."""
     if not link:
         return None
-    # (KEEP AS ORIGINAL — ONLY for Google Video, NOT Cloud)
     link = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", link)
     return link
 
 
 def format_href(link):
-    """Format link with <a href> and display 𝗟𝗜𝗡𝗞"""
     if not link:
         return "Not Found"
     return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
@@ -52,11 +50,9 @@ def get_google_from_instant(instant_url):
 
     final = r.url
 
-    # 1️⃣ Direct Google Link
     if "video-downloads.googleusercontent.com" in final:
         return clean_google_link(final)
 
-    # 2️⃣ FastCDN → extract ONLY google link
     if "fastcdn-dl.pages.dev" in final and "url=" in final:
         pure = final.split("url=")[-1]
         if "video-downloads.googleusercontent.com" in pure:
@@ -108,7 +104,6 @@ def scrape_gdflix(url):
     soup = BeautifulSoup(html, "html.parser")
     text = html
 
-    # Extract real Google link
     instantdl = get_instantdl(url)
     google_video = get_google_from_instant(instantdl)
 
@@ -128,16 +123,13 @@ def scrape_gdflix(url):
         "instantdl": format_href(google_video),
     }
 
-    # ========================= CLEAN CLOUD DOWNLOAD (ONLY PREFIX REMOVED) =========================
     cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"']+")
     if cloud_raw:
-        # remove ONLY the prefix — nothing else touched
         cleaned_cloud = re.sub(r"https://fastcdn-dl\.pages\.dev/\?url=", "", cloud_raw)
-        cleaned_cloud = urllib.parse.unquote(cleaned_cloud)  # decode URL
+        cleaned_cloud = urllib.parse.unquote(cleaned_cloud)
         data["cloud_resume"] = format_href(cleaned_cloud)
     else:
         data["cloud_resume"] = None
-    # ==============================================================================================
 
     data.update({
         "pixeldrain": format_href(pix),
@@ -148,7 +140,6 @@ def scrape_gdflix(url):
         "final_url": final_url
     })
 
-    # ZFILE
     direct = scan(text, r"https://[^\"']+/zfile/[0-9]+/[A-Za-z0-9]+")
     if direct:
         zhtml, _ = fetch_html(direct)
@@ -161,15 +152,27 @@ def scrape_gdflix(url):
         if fb:
             data["zfile"].append(format_href(fb))
 
-    # GoFile
-    validate = scan(text, r"https://validate\.mulitup\.workers\.dev/[A-Za-z0-9]+")
-    if validate:
+    # ========================= FIXED GOFILE START =========================
+    gf_final = None
+
+    # Step 1 → find first mirror
+    mirror1 = scan(text, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
+    if mirror1:
         try:
-            vh = requests.get(validate, headers=HEADERS).text
-            gf = scan(vh, r"https://gofile\.io/d/[A-Za-z0-9]+")
-            data["gofile"] = format_href(gf)
+            m1_html, _ = fetch_html(mirror1)
+
+            # Step 2 → find second mirror
+            mirror2 = scan(m1_html, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
+            if mirror2 and mirror2 != mirror1:
+                m2_html, _ = fetch_html(mirror2)
+
+                # Step 3 → extract final GoFile
+                gf_final = scan(m2_html, r"https://gofile\.io/d/[A-Za-z0-9]+")
         except:
             pass
+
+    data["gofile"] = format_href(gf_final)
+    # ========================= FIXED GOFILE END =========================
 
     return data
 
