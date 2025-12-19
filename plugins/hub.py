@@ -16,10 +16,14 @@ async def safe_edit_or_send(msg, text, **kwargs):
         return
 
     parts = [text[i:i+MAX_LEN] for i in range(0, len(text), MAX_LEN)]
-
     await msg.edit(parts[0], **kwargs)
     for part in parts[1:]:
         await msg.reply(part, **kwargs)
+
+
+# ---------- LINK FORMATTER ----------
+def href(url: str):
+    return f"[𝗟𝗜𝗡𝗞]({url})"
 
 
 # ---------- COMMAND ----------
@@ -63,8 +67,7 @@ async def hubcloud_old_handler(client: Client, message: Message):
         async with aiohttp.ClientSession() as session:
             for url in hubcloud_urls:
 
-                params = {"url": url}
-                async with session.get(API_URL, params=params, timeout=90) as resp:
+                async with session.get(API_URL, params={"url": url}, timeout=90) as resp:
                     data = await resp.json()
 
                 if "title" not in data:
@@ -73,16 +76,14 @@ async def hubcloud_old_handler(client: Client, message: Message):
 
                 title = data.get("title", "Unknown Name")
                 size = data.get("size", "Unknown Size")
-                google = data.get("google_video")
-                main_link = data.get("main_link")
 
                 final_text += f"🎬 **{title}**\n"
                 final_text += f"💾 **Size:** {size}\n"
-                final_text += f"🔗 **Main Link:** {main_link}\n\n"
+                final_text += f"🔗 **Main Link:** {href(data.get('main_link'))}\n\n"
 
                 # Google Video
-                if google:
-                    final_text += f"▶️ **Google Video:**\n{google}\n\n"
+                if data.get("google_video"):
+                    final_text += f"▶️ **Google Video:** {href(data['google_video'])}\n\n"
 
                 # Zipdisk / Pixeldrain
                 if data.get("zip_files"):
@@ -90,14 +91,14 @@ async def hubcloud_old_handler(client: Client, message: Message):
                         final_text += (
                             f"🟣 **ZipDisk / Pixel**\n"
                             f"📁 {z.get('name', 'File')}\n"
-                            f"🔗 {z.get('url')}\n\n"
+                            f"🔗 {href(z.get('url'))}\n\n"
                         )
 
                 # Mirrors
                 if data.get("mirrors"):
                     final_text += "🔁 **Mirrors:**\n"
                     for m in data["mirrors"]:
-                        final_text += f"🔹 {m['label']} → {m['url']}\n"
+                        final_text += f"🔹 {m['label']} → {href(m['url'])}\n"
                     final_text += "\n"
 
         # ✅ SAFE SEND (no MESSAGE_TOO_LONG error)
