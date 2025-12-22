@@ -1,113 +1,123 @@
+# hubcloud_plugin.py
+from pyrogram import Client, filters
+from pyrogram.types import Message
+import requests
 import re
-import asyncio
-import aiohttp
-from urllib.parse import unquote, quote
+from bs4 import BeautifulSoup
+import time
+import urllib.parse
 
-# -------------------------------------------------
-# HEADERS (REAL BROWSER UA)
-# -------------------------------------------------
+OFFICIAL_GROUPS = ["-1002311378229"]
+
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/121.0.0.0 Safari/537.36"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/121.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://hubcloud.foo/",
 }
 
-# -------------------------------------------------
-# SAFE ENCODE
-# -------------------------------------------------
-def clean(url: str) -> str:
-    try:
-        return quote(url, safe=":/?&=%")
-    except:
-        return url
+# ==========================================================
+# HELPERS
+# ==========================================================
 
-# -------------------------------------------------
-# EXTRACT GAMERXYT URL
-# -------------------------------------------------
-def extract_gamerxyt(html: str):
-    m = re.search(
-        r"https://gamerxyt\.com/hubcloud\.php\?host=hubcloud[^\"' ]+",
-        html,
-        re.I
-    )
+def fetch_html(url, allow_redirects=True):
+    try:
+        r = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=15,
+            allow_redirects=allow_redirects
+        )
+        return r.text, r.url
+    except:
+        return "", url
+
+
+def scan(text, pattern):
+    m = re.search(pattern, text, re.I)
     return m.group(0) if m else None
 
-# -------------------------------------------------
-# EXTRACT SIZE
-# -------------------------------------------------
-def extract_size(html: str):
-    m = re.search(r"File Size<i[^>]*>(.*?)</i>", html, re.I)
-    return re.sub(r"<.*?>", "", m.group(1)).strip() if m else "Unknown"
 
-# -------------------------------------------------
-# EXTRACT TITLE
-# -------------------------------------------------
-def extract_title(html: str):
-    m = re.search(r"<title>(.*?)</title>", html, re.I)
-    return m.group(1).strip() if m else "Unknown"
+def format_href(link):
+    if not link:
+        return "Not Found"
+    return f'<a href="{link}">𝗟𝗜𝗡𝗞</a>'
 
-# -------------------------------------------------
+
+# ==========================================================
 # CLEAN GOOGLE LINK
-# -------------------------------------------------
-def clean_google_link(url: str):
-    return re.sub(r"^https://cryptoinsights\.site/dl\.php\?link=", "", url)
+# ==========================================================
 
-# -------------------------------------------------
-# RESOLVE PIXEL-ALT
-# -------------------------------------------------
-async def resolve_pixel_alt(session, url):
+def clean_google_link(link):
+    if not link:
+        return None
+    return re.sub(
+        r"https://cryptoinsights\.site/dl\.php\?link=",
+        "",
+        link
+    )
+
+
+# ==========================================================
+# RESOLVERS
+# ==========================================================
+
+def resolve_pixel_alt(url):
     try:
-        async with session.get(url, allow_redirects=True) as r:
-            final = clean_google_link(str(r.url))
-            if "googlevideo.com" in final or "googleusercontent" in final:
-                return final
+        r = requests.get(url, headers=HEADERS, timeout=15, allow_redirects=True)
+        final = clean_google_link(r.url)
+        if "googlevideo.com" in final or "googleusercontent.com" in final:
+            return final
     except:
         pass
     return None
 
-# -------------------------------------------------
-# RESOLVE 10GBPS
-# -------------------------------------------------
-async def resolve_10gbps(session, url):
+
+def resolve_10gbps(url):
     try:
-        async with session.get(url, allow_redirects=True) as r:
-            m = re.search(r"link=([^&]+)", str(r.url))
-            if m:
-                return clean_google_link(unquote(m.group(1)))
+        r = requests.get(url, headers=HEADERS, timeout=15, allow_redirects=True)
+        m = re.search(r"link=([^&]+)", r.url)
+        if m:
+            return clean_google_link(urllib.parse.unquote(m.group(1)))
     except:
         pass
     return None
 
-# -------------------------------------------------
-# RESOLVE TRS
-# -------------------------------------------------
-async def resolve_trs(session, url):
+
+def resolve_trs(url):
     try:
-        async with session.get(url, allow_redirects=True) as r:
-            final = str(r.url)
-            if any(x in final for x in ["mega.nz", "mega.co", "userstorage.mega"]):
-                return final
+        r = requests.get(url, headers=HEADERS, timeout=15, allow_redirects=True)
+        if any(x in r.url for x in ["mega.nz", "mega.co", "userstorage.mega"]):
+            return r.url
     except:
         pass
     return None
 
-# -------------------------------------------------
-# ZIP EXTRACTOR
-# -------------------------------------------------
-def extract_zip_files(html: str):
+
+# ==========================================================
+# ZIP FILES
+# ==========================================================
+
+def extract_zip_files(html):
     files = []
 
-    main = re.search(r"https://pixeldrain\.dev/u/[A-Za-z0-9]+", html)
+    main = scan(html, r"https://pixeldrain\.dev/u/[A-Za-z0-9]+")
     if main:
-        name = re.search(r'download="([^"]+)"', html)
-        size = re.search(r"\(([\d\.]+\s*(GB|MB|TB))\)", html)
+        name = scan(html, r'download="([^"]+)"')
+        size = scan(html, r"\(([\d\.]+\s*(GB|MB|TB))\)")
         files.append({
-            "url": main.group(0),
-            "name": name.group(1) if name else "Zip Archive",
-            "size": size.group(1) if size else "Unknown"
+            "url": main,
+            "name": name or "Zip Archive",
+            "size": size or "Unknown"
         })
 
-    for m in re.finditer(r"<a href='([^']+\.mkv)'[^>]*>(.*?)</a>\s*\((.*?)\)", html, re.I):
+    for m in re.finditer(
+        r"<a href='([^']+\.mkv)'[^>]*>(.*?)</a>\s*\((.*?)\)",
+        html,
+        re.I
+    ):
         files.append({
             "url": m.group(1),
             "name": m.group(2),
@@ -116,43 +126,42 @@ def extract_zip_files(html: str):
 
     return files
 
-# -------------------------------------------------
-# MIRROR EXTRACTOR
-# -------------------------------------------------
-async def extract_mirrors(session, html, google_store, trs_store):
-    mirrors = []
 
-    RULES = [
+# ==========================================================
+# MIRRORS
+# ==========================================================
+
+def extract_mirrors(html):
+    mirrors = []
+    google_video = None
+    trs_direct = None
+
+    rules = [
         ("Pixel", r"https://pixeldrain\.dev/u/[A-Za-z0-9]+"),
         ("Pixel-Alt", r"https://pixel\.hubcdn\.fans/\?id=[^\"' ]+"),
-        ("FSL-V2", r"https://cdn\.fsl-buckets\.life/[^\"' ]+"),
-        ("FSL-V2", r"https://fsl\.gigabytes\.icu/[^\"' ]+"),
-        ("FSL-R2", r"https://[A-Za-z0-9.-]+\.r2\.dev/[^\"' ]+"),
-        ("Stranger-FSL", r"https://love\.stranger-things\.buzz/[^\"' ]+"),
-        ("MegaServer", r"https://mega\.blockxpiracy\.net/cs/g\?[^\"' ]+"),
         ("TRS", r"https://hubcloud\.foo/re/trs\.php[^\"' ]+"),
         ("10Gbps", r"https://gpdl\.hubcdn\.fans[^\"' ]+"),
     ]
 
-    for label, pattern in RULES:
+    for label, pattern in rules:
         for raw in re.findall(pattern, html, re.I):
-            link = clean(raw)
+            link = raw
 
             if label == "Pixel-Alt":
-                d = await resolve_pixel_alt(session, link)
+                d = resolve_pixel_alt(link)
                 if d:
-                    google_store["value"] = d
+                    google_video = d
 
             if label == "10Gbps":
-                d = await resolve_10gbps(session, link)
+                d = resolve_10gbps(link)
                 if d:
-                    google_store["value"] = d
+                    google_video = d
 
             if label == "TRS":
-                d = await resolve_trs(session, link)
+                d = resolve_trs(link)
                 mirrors.append({"label": "TRS", "url": link})
                 if d:
-                    trs_store["value"] = d
+                    trs_direct = d
                     mirrors.append({"label": "TRS-Direct", "url": d})
                 continue
 
@@ -160,50 +169,111 @@ async def extract_mirrors(session, html, google_store, trs_store):
 
     # Deduplicate
     seen = set()
-    out = []
+    final = []
     for m in mirrors:
         if m["url"] not in seen:
             seen.add(m["url"])
-            out.append(m)
+            final.append(m)
 
-    return out
+    return final, google_video, trs_direct
 
-# -------------------------------------------------
+
+# ==========================================================
 # MAIN SCRAPER
-# -------------------------------------------------
-async def scrape_hubcloud(url: str):
-    async with aiohttp.ClientSession(headers=HEADERS) as session:
-        async with session.get(url) as r1:
-            html1 = await r1.text()
+# ==========================================================
 
-        gamer_url = extract_gamerxyt(html1)
-        if not gamer_url:
-            return {
-                "title": "TOKEN NOT FOUND",
-                "size": "Unknown",
-                "main_link": url,
-                "mirrors": []
-            }
+def scrape_hubcloud(url):
+    html1, _ = fetch_html(url)
 
-        async with session.get(gamer_url, allow_redirects=True) as r2:
-            final_html = await r2.text()
+    # Generator link (gamerxyt / carnewz / cryptoinsights)
+    generator = scan(
+        html1,
+        r"https://(gamerxyt\.com|carnewz\.site|cryptoinsights\.site)"
+        r"/hubcloud\.php\?host=hubcloud[^\"' ]+"
+    )
 
-        google_store = {"value": None}
-        trs_store = {"value": None}
-
+    if not generator:
         return {
-            "title": extract_title(final_html),
-            "size": extract_size(final_html),
+            "title": "TOKEN NOT FOUND",
+            "size": "Unknown",
             "main_link": url,
-            "google_video": google_store["value"],
-            "trs_direct": trs_store["value"],
-            "zip_files": extract_zip_files(final_html),
-            "mirrors": await extract_mirrors(session, final_html, google_store, trs_store)
+            "mirrors": []
         }
 
-# -------------------------------------------------
-# CLI TEST
-# -------------------------------------------------
-if __name__ == "__main__":
-    test_url = "https://hubcloud.foo/drive/XXXXXXXX"
-    print(asyncio.run(scrape_hubcloud(test_url)))
+    html2, final_url = fetch_html(generator)
+
+    soup = BeautifulSoup(html2, "html.parser")
+
+    mirrors, google_video, trs_direct = extract_mirrors(html2)
+
+    return {
+        "title": soup.title.text.strip() if soup.title else "Unknown",
+        "size": scan(html2, r"[\d\.]+\s*(GB|MB)") or "Unknown",
+        "google_video": format_href(google_video),
+        "trs_direct": format_href(trs_direct),
+        "zip_files": extract_zip_files(html2),
+        "mirrors": mirrors,
+        "final_url": final_url
+    }
+
+
+# ==========================================================
+# FORMAT MESSAGE
+# ==========================================================
+
+def format_message(d, message, elapsed):
+    text = (
+        f"✅ <b>HubCloud Extracted</b>\n\n"
+        f"┎ 📁 <b>Title</b>\n┃ {d['title']}\n\n"
+        f"┠ 💾 <b>Size</b>\n┃ {d['size']}\n\n"
+        f"┠ 🎬 <b>Google Video</b>\n┃ {d['google_video']}\n\n"
+        f"┠ ☁️ <b>TRS Direct</b>\n┃ {d['trs_direct']}\n\n"
+        f"┠ 📦 <b>Zip Files</b>\n┃ {len(d['zip_files'])}\n\n"
+        f"┠ 🔗 <b>Mirrors</b>\n"
+    )
+
+    for m in d["mirrors"]:
+        text += f"┃ • {m['label']} → {format_href(m['url'])}\n"
+
+    text += (
+        f"\n━━━━━━━━✦✗✦━━━━━━━━\n"
+        f"⏱️ Bypassed in {elapsed} sec\n"
+        f"<b>Requested By:</b> {message.from_user.mention}"
+    )
+    return text
+
+
+# ==========================================================
+# COMMAND
+# ==========================================================
+
+URL_RE = re.compile(r"https?://[^\s]+")
+
+def extract_links(text):
+    return URL_RE.findall(text or "")
+
+
+@Client.on_message(filters.command(["hub", "hubcloud"]))
+async def hubcloud_handler(client: Client, message: Message):
+
+    if str(message.chat.id) not in OFFICIAL_GROUPS:
+        return await message.reply("❌ This command only works in our official group.")
+
+    links = extract_links(message.text)
+
+    if not links and message.reply_to_message:
+        links = extract_links(message.reply_to_message.text or "")
+
+    if not links:
+        return await message.reply("⚠️ Usage: /hub <hubcloud link>")
+
+    links = links[:5]
+
+    for i, url in enumerate(links, 1):
+        temp = await message.reply(f"⏳ ({i}/{len(links)}) Processing...")
+
+        start = time.time()
+        data = scrape_hubcloud(url)
+        elapsed = round(time.time() - start, 2)
+
+        await temp.edit(format_message(data, message, elapsed))
