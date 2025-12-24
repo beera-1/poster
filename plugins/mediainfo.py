@@ -7,13 +7,13 @@ from shlex import split as ssplit
 from aiohttp import ClientSession
 from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove, path as aiopath, mkdir
-from os import path as ospath, getcwd
+from os import path as ospath
 
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
 # ================= CONFIG =================
-OFFICIAL_GROUPS = ["-1002311378229"]   # 🔴 your group id
+OFFICIAL_GROUPS = ["-1002311378229"]   # your group ID
 MAX_LEN = 4000
 
 
@@ -60,14 +60,6 @@ async def mediainfo_handler(client: Client, message: Message):
         return await message.reply("❌ This command works only in our official group.")
 
     reply = message.reply_to_message
-
-    if not reply and len(message.command) == 1:
-        return await message.reply(
-            "❌ Usage:\n"
-            "`/mi` reply to media\n"
-            "`/mi <direct_link>`"
-        )
-
     wait = await message.reply("📊 Generating MediaInfo...")
 
     base = "Mediainfo"
@@ -77,32 +69,23 @@ async def mediainfo_handler(client: Client, message: Message):
     file_path = None
 
     try:
-        # -------- LINK --------
+        # ========== CASE 1: /mi <link> ==========
         if len(message.command) > 1:
             url = message.command[1]
-            fname = re.search(r".+/(.+)", url).group(1)
-            file_path = ospath.join(base, fname)
 
-            async with ClientSession() as session:
-                async with session.get(url) as r:
-                    async with aiopen(file_path, "wb") as f:
-                        async for chunk in r.content.iter_chunked(10_000_000):
-                            await f.write(chunk)
-                            break
+        # ========== CASE 2: reply to TEXT (HubCloud) ==========
+        elif reply and (reply.text or reply.caption):
+            text = reply.text or reply.caption
+            urls = re.findall(r"https?://\S+", text)
+            if not urls:
+                return await wait.edit("❌ No downloadable link found in message.")
+            url = urls[0]
 
-        # -------- MEDIA --------
-        else:
-            media = (
-                reply.document
-                or reply.video
-                or reply.audio
-                or reply.voice
-                or reply.animation
-                or reply.video_note
-            )
-
+        # ========== CASE 3: reply to MEDIA ==========
+        elif reply:
+            media = reply.document or reply.video or reply.audio
             if not media:
-                return await wait.edit("❌ Reply to a media file.")
+                return await wait.edit("❌ Reply to a media file or link post.")
 
             file_path = ospath.join(base, media.file_name)
 
@@ -113,13 +96,28 @@ async def mediainfo_handler(client: Client, message: Message):
                     async with aiopen(file_path, "ab") as f:
                         await f.write(chunk)
 
-        # -------- MEDIAINFO --------
+        else:
+            return await wait.edit("❌ Usage:\n/mi reply to media or link")
+
+        # ========== DOWNLOAD FROM LINK ==========
+        if not file_path:
+            fname = re.search(r"/([^/?#]+)", url).group(1)
+            file_path = ospath.join(base, fname)
+
+            async with ClientSession() as session:
+                async with session.get(url, timeout=120) as r:
+                    async with aiopen(file_path, "wb") as f:
+                        async for chunk in r.content.iter_chunked(10_000_000):
+                            await f.write(chunk)
+                            break
+
+        # ========== MEDIAINFO ==========
         proc = await asyncio.create_subprocess_exec(
             *ssplit(f'mediainfo "{file_path}"'),
             stdout=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
-        info = stdout.decode().strip()
+        info = stdout.decode(errors="ignore").strip()
 
         if not info:
             return await wait.edit("❌ MediaInfo failed.")
