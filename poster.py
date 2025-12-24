@@ -1,18 +1,10 @@
 import aiohttp
 from aiohttp import web
-from config import *  # API_ID, API_HASH, BOT_TOKEN
+from config import *  # <- fixed import
 from pyrogram import Client
 import asyncio
-import logging
 
-# ================= LOGGER =================
-logging.basicConfig(
-    format="[%(asctime)s] [%(levelname)s] - %(message)s",
-    level=logging.INFO,
-)
-LOGGER = logging.getLogger("poster")
-
-# ================= BOT INSTANCE =================
+# ===== BOT INSTANCE =====
 class ShortnerBot(Client):
     def __init__(self):
         super().__init__(
@@ -24,10 +16,7 @@ class ShortnerBot(Client):
             workers=100,
         )
 
-# 🔥 GLOBAL BOT INSTANCE (IMPORTANT FOR PLUGINS)
-bot = ShortnerBot()
-
-# ================= HEALTH CHECK =================
+# ===== HEALTH CHECK =====
 async def health_handler(request):
     return web.Response(text="✅ Bot is running on Koyeb")
 
@@ -38,12 +27,13 @@ async def start_webserver():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
-    LOGGER.info("🌐 Health check server running on port 8080")
+    print("🌐 Health check server running on port 8080")
 
-# ================= MAIN =================
+# ===== MAIN =====
 async def main():
+    bot = ShortnerBot()
     await bot.start()
-    LOGGER.info("🤖 Bot started successfully!")
+    print("🤖 Bot started successfully!")
 
     # Run health check server in parallel
     await start_webserver()
