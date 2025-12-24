@@ -1,165 +1,142 @@
 #!/usr/bin/env python3
+import os
+import re
+import asyncio
+from shlex import split as ssplit
+
 from aiohttp import ClientSession
 from aiofiles import open as aiopen
 from aiofiles.os import remove as aioremove, path as aiopath, mkdir
 from os import path as ospath, getcwd
-from re import search as re_search
-from shlex import split as ssplit
 
-from pyrogram.handlers import MessageHandler
-from pyrogram.filters import command, create
-from pyrogram.enums import ChatType
+from pyrogram import Client, filters
+from pyrogram.types import Message
 
-# ✅ CORRECT IMPORTS
-from poster import bot, LOGGER
-from bot import user_data, OWNER_ID
-from bot.helper.telegram_helper.message_utils import chat_info
+# ================= CONFIG =================
+OFFICIAL_GROUPS = ["-1002311378229"]   # 🔴 your group id
+MAX_LEN = 4000
 
 
-# =================================================
-# CUSTOM FILTERS (EMBEDDED – FIXED)
-# =================================================
-class CustomFilters:
+# ================= SAFE SEND =================
+async def safe_edit_or_send(msg, text, **kwargs):
+    if len(text) <= MAX_LEN:
+        return await msg.edit(text, **kwargs)
 
-    async def owner_filter(self, _, message):
-        user = message.from_user or message.sender_chat
-        return user.id == OWNER_ID
+    parts = [text[i:i + MAX_LEN] for i in range(0, len(text), MAX_LEN)]
+    await msg.edit(parts[0], **kwargs)
+    for part in parts[1:]:
+        await msg.reply(part, **kwargs)
 
-    owner = create(owner_filter)
 
-    async def authorized_user(self, _, message):
-        user = message.from_user or message.sender_chat
-        uid = user.id
+# ================= MEDIAINFO FORMAT =================
+SECTION_EMOJI = {
+    "General": "🗒",
+    "Video": "🎞",
+    "Audio": "🔊",
+    "Text": "🔠",
+    "Menu": "🗃",
+}
 
-        if uid == OWNER_ID or (
-            uid in user_data and (
-                user_data[uid].get("is_auth", False)
-                or user_data[uid].get("is_sudo", False)
-            )
-        ):
-            return True
+def parseinfo(out: str):
+    html = ""
+    for line in out.splitlines():
+        for sec, emo in SECTION_EMOJI.items():
+            if line.startswith(sec):
+                if html:
+                    html += "</pre>\n"
+                html += f"<b>{emo} {line.replace('Text','Subtitle')}</b>\n<pre>"
+                break
+        else:
+            html += line + "\n"
+    return html + "</pre>"
 
-        chat_id = message.chat.id
-        if chat_id in user_data and user_data[chat_id].get("is_auth", False):
-            topic_ids = user_data[chat_id].get("topic_ids", [])
-            if not topic_ids:
-                return True
 
-            r = message.reply_to_message
-            if r:
-                if r.id in topic_ids:
-                    return True
-                if r.reply_to_top_message_id in topic_ids:
-                    return True
-                if r.reply_to_message_id in topic_ids:
-                    return True
+# ================= COMMAND =================
+@Client.on_message(filters.command(["mediainfo", "mi"]))
+async def mediainfo_handler(client: Client, message: Message):
 
-        return False
+    # -------- GROUP ONLY --------
+    if str(message.chat.id) not in OFFICIAL_GROUPS:
+        return await message.reply("❌ This command works only in our official group.")
 
-    authorized = create(authorized_user)
+    reply = message.reply_to_message
 
-    async def authorized_usetting(self, _, message):
-        uid = (message.from_user or message.sender_chat).id
-        chat_id = message.chat.id
-
-        if (
-            uid == OWNER_ID
-            or (uid in user_data and (user_data[uid].get("is_auth") or user_data[uid].get("is_sudo")))
-            or (chat_id in user_data and user_data[chat_id].get("is_auth"))
-        ):
-            return True
-
-        if message.chat.type == ChatType.PRIVATE:
-            for cid in user_data:
-                if user_data[cid].get("is_auth") and str(cid).startswith("-100"):
-                    try:
-                        if await (await chat_info(str(cid))).get_member(uid):
-                            return True
-                    except:
-                        continue
-        return False
-
-    authorized_uset = create(authorized_usetting)
-
-    async def sudo_user(self, _, message):
-        user = message.from_user or message.sender_chat
-        return user.id == OWNER_ID or (
-            user.id in user_data and user_data[user.id].get("is_sudo")
+    if not reply and len(message.command) == 1:
+        return await message.reply(
+            "❌ Usage:\n"
+            "`/mi` reply to media\n"
+            "`/mi <direct_link>`"
         )
 
-    sudo = create(sudo_user)
+    wait = await message.reply("📊 Generating MediaInfo...")
 
-    async def blacklist_user(self, _, message):
-        user = message.from_user or message.sender_chat
-        return user.id != OWNER_ID and (
-            user.id in user_data and user_data[user.id].get("is_blacklist")
-        )
+    base = "Mediainfo"
+    if not await aiopath.isdir(base):
+        await mkdir(base)
 
-    blacklisted = create(blacklist_user)
-
-
-# =================================================
-# MEDIAINFO CORE
-# =================================================
-async def gen_mediainfo(message, link=None, media=None, mmsg=None):
-    temp = await sendMessage(message, "<i>📊 Generating MediaInfo...</i>")
-    des_path = None
+    file_path = None
 
     try:
-        base = "Mediainfo"
-        if not await aiopath.isdir(base):
-            await mkdir(base)
+        # -------- LINK --------
+        if len(message.command) > 1:
+            url = message.command[1]
+            fname = re.search(r".+/(.+)", url).group(1)
+            file_path = ospath.join(base, fname)
 
-        if link:
-            filename = re_search(r".+/(.+)", link).group(1)
-            des_path = ospath.join(base, filename)
             async with ClientSession() as session:
-                async with session.get(link) as r:
-                    async with aiopen(des_path, "wb") as f:
+                async with session.get(url) as r:
+                    async with aiopen(file_path, "wb") as f:
                         async for chunk in r.content.iter_chunked(10_000_000):
                             await f.write(chunk)
                             break
 
-        elif media:
-            des_path = ospath.join(base, media.file_name)
+        # -------- MEDIA --------
+        else:
+            media = (
+                reply.document
+                or reply.video
+                or reply.audio
+                or reply.voice
+                or reply.animation
+                or reply.video_note
+            )
+
+            if not media:
+                return await wait.edit("❌ Reply to a media file.")
+
+            file_path = ospath.join(base, media.file_name)
+
             if media.file_size <= 50 * 1024 * 1024:
-                await mmsg.download(ospath.join(getcwd(), des_path))
+                await reply.download(file_path)
             else:
-                async for chunk in bot.stream_media(media, limit=5):
-                    async with aiopen(des_path, "ab") as f:
+                async for chunk in client.stream_media(media, limit=5):
+                    async with aiopen(file_path, "ab") as f:
                         await f.write(chunk)
 
-        stdout, _, _ = await cmd_exec(ssplit(f'mediainfo "{des_path}"'))
+        # -------- MEDIAINFO --------
+        proc = await asyncio.create_subprocess_exec(
+            *ssplit(f'mediainfo "{file_path}"'),
+            stdout=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        info = stdout.decode().strip()
 
-        content = f"<h4>📌 {ospath.basename(des_path)}</h4><br>"
-        if stdout:
-            content += f"<pre>{stdout}</pre>"
+        if not info:
+            return await wait.edit("❌ MediaInfo failed.")
 
-        page = await telegraph.create_page("MediaInfo", content)
+        output = f"<b>📌 {os.path.basename(file_path)}</b>\n\n"
+        output += parseinfo(info)
 
-        await editMessage(
-            temp,
-            f"<b>📄 MediaInfo:</b>\n\n➲ https://graph.org/{page['path']}",
-            disable_web_page_preview=False,
+        await safe_edit_or_send(
+            wait,
+            output,
+            parse_mode="html",
+            disable_web_page_preview=True
         )
 
     except Exception as e:
-        LOGGER.error(e)
-        await editMessage(temp, f"❌ MediaInfo failed\n<code>{e}</code>")
+        await wait.edit(f"⚠️ Error:\n`{e}`")
 
     finally:
-        if des_path and await aiopath.exists(des_path):
-            await aioremove(des_path)
-
-
-# =================================================
-# COMMAND REGISTER
-# =================================================
-bot.add_handler(
-    MessageHandler(
-        mediainfo,
-        filters=command(["mediainfo", "mi"])
-        & CustomFilters.authorized
-        & ~CustomFilters.blacklisted
-    )
-                )
+        if file_path and await aiopath.exists(file_path):
+            await aioremove(file_path)
