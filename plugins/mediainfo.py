@@ -9,7 +9,8 @@ from shlex import split as ssplit
 from pyrogram.handlers import MessageHandler
 from pyrogram.filters import command
 
-from bot import bot, LOGGER
+# ✅ FIXED IMPORT
+from poster import bot, LOGGER
 from bot.helper.telegram_helper.filters import CustomFilters
 
 # NOTE:
@@ -38,7 +39,7 @@ async def gen_mediainfo(message, link=None, media=None, mmsg=None):
                     async with aiopen(des_path, "wb") as f:
                         async for chunk in r.content.iter_chunked(10_000_000):
                             await f.write(chunk)
-                            break   # only header part needed
+                            break
 
         # -------- FROM TELEGRAM MEDIA --------
         elif media:
@@ -113,12 +114,10 @@ async def mediainfo(_, message):
         "Send a direct download link"
     )
 
-    # ----- LINK -----
     if len(message.command) > 1 or (rply and rply.text):
         link = rply.text if rply else message.command[1]
         return await gen_mediainfo(message, link=link)
 
-    # ----- MEDIA -----
     if rply:
         media = next(
             (
@@ -147,4 +146,4 @@ bot.add_handler(
         & CustomFilters.authorized
         & ~CustomFilters.blacklisted
     )
-                                                      )
+)
