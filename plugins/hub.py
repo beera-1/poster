@@ -15,7 +15,7 @@ async def safe_edit_or_send(msg, text, **kwargs):
         await msg.edit(text, **kwargs)
         return
 
-    parts = [text[i:i+MAX_LEN] for i in range(0, len(text), MAX_LEN)]
+    parts = [text[i:i + MAX_LEN] for i in range(0, len(text), MAX_LEN)]
     await msg.edit(parts[0], **kwargs)
     for part in parts[1:]:
         await msg.reply(part, **kwargs)
@@ -28,80 +28,69 @@ def href(url: str):
 
 # ---------- COMMAND ----------
 @Client.on_message(filters.command(["hub", "hubcloud"]))
-async def hubcloud_old_handler(client: Client, message: Message):
+async def hubcloud_handler(client: Client, message: Message):
 
-    # ------------------ Authorization Check ------------------
+    # ------------------ Authorization ------------------
     if str(message.chat.id) not in OFFICIAL_GROUPS:
-        await message.reply("❌ This command only works in our official group.")
-        return
-    # ---------------------------------------------------------
+        return await message.reply("❌ This command only works in our official group.")
+    # ---------------------------------------------------
 
     hubcloud_urls = []
 
-    # Case 1: URLs inside command
+    # Case 1: URLs in command
     if len(message.command) > 1:
-        raw = " ".join(message.command[1:])
         hubcloud_urls.extend(
-            [u.strip() for u in raw.split() if "hubcloud" in u]
+            re.findall(r"https?://hubcloud\.\S+", " ".join(message.command[1:]))
         )
 
-    # Case 2: URLs inside replied message
+    # Case 2: URLs in replied message
     if message.reply_to_message:
         txt = message.reply_to_message.text or message.reply_to_message.caption or ""
-        found = re.findall(r"https?://hubcloud\.\S+", txt)
-        hubcloud_urls.extend(found)
+        hubcloud_urls.extend(re.findall(r"https?://hubcloud\.\S+", txt))
 
     if not hubcloud_urls:
-        await message.reply(
+        return await message.reply(
             "❌ No HubCloud links found.\n\n"
-            "Usage:\n`/hub <hubcloud_url>`\n"
-            "or reply with `/hub` to a message containing HubCloud links."
+            "`/hub <hubcloud_url>`\n"
+            "or reply with `/hub`"
         )
-        return
 
     wait_msg = await message.reply("🔍 Fetching HubCloud links...")
 
-    final_text = "✅ **HubCloud Extracted Links:**\n\n"
+    final_text = "✅ **HubCloud Extracted Links**\n\n"
 
     try:
         async with aiohttp.ClientSession() as session:
-            for url in hubcloud_urls:
+            for idx, url in enumerate(hubcloud_urls, 1):
 
                 async with session.get(API_URL, params={"url": url}, timeout=90) as resp:
                     data = await resp.json()
 
                 if "title" not in data:
-                    final_text += f"❌ Failed for:\n`{url}`\n\n"
+                    final_text += f"❌ Failed:\n`{url}`\n\n"
                     continue
 
-                title = data.get("title", "Unknown Name")
-                size = data.get("size", "Unknown Size")
-
-                final_text += f"🎬 **{title}**\n"
-                final_text += f"💾 **Size:** {size}\n"
-                final_text += f"🔗 **Main Link:** {href(data.get('main_link'))}\n\n"
+                final_text += (
+                    f"🎬 **{data.get('title', 'Unknown')}**\n"
+                    f"💾 **Size:** {data.get('size', 'Unknown')}\n"
+                    f"🔗 **Source:** {href(data.get('source'))}\n"
+                )
 
                 # Google Video
                 if data.get("google_video"):
-                    final_text += f"▶️ **Google Video:** {href(data['google_video'])}\n\n"
+                    final_text += f"▶️ **Google Video:** {href(data['google_video'])}\n"
 
-                # Zipdisk / Pixeldrain
-                if data.get("zip_files"):
-                    for z in data["zip_files"]:
-                        final_text += (
-                            f"🟣 **ZipDisk / Pixel**\n"
-                            f"📁 {z.get('name', 'File')}\n"
-                            f"🔗 {href(z.get('url'))}\n\n"
-                        )
+                final_text += "\n"
 
-                # Mirrors
-                if data.get("mirrors"):
-                    final_text += "🔁 **Mirrors:**\n"
-                    for m in data["mirrors"]:
-                        final_text += f"🔹 {m['label']} → {href(m['url'])}\n"
+                # Links (Zip / FSL / Pixel / R2 / etc)
+                if data.get("links"):
+                    final_text += "🔁 **Download Links:**\n"
+                    for l in data["links"]:
+                        final_text += f"🔹 **{l['type']}** → {href(l['url'])}\n"
                     final_text += "\n"
 
-        # ✅ SAFE SEND (no MESSAGE_TOO_LONG error)
+                final_text += "━━━━━━━━━━━━━━\n\n"
+
         await safe_edit_or_send(
             wait_msg,
             final_text,
