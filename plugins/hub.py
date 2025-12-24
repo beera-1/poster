@@ -76,17 +76,50 @@ async def hubcloud_handler(client: Client, message: Message):
                     f"🔗 **Source:** {href(data.get('source'))}\n"
                 )
 
-                # Google Video
+                # ---------------- GOOGLE VIDEO ----------------
                 if data.get("google_video"):
                     final_text += f"▶️ **Google Video:** {href(data['google_video'])}\n"
 
                 final_text += "\n"
 
-                # Links (Zip / FSL / Pixel / R2 / etc)
-                if data.get("links"):
-                    final_text += "🔁 **Download Links:**\n"
-                    for l in data["links"]:
-                        final_text += f"🔹 **{l['type']}** → {href(l['url'])}\n"
+                # ---------------- FILTERED LINKS ----------------
+                pixel_links = []
+                fslv2_links = []
+                fsl_links = []
+
+                for l in data.get("links", []):
+                    t = l.get("type", "").lower()
+                    u = l.get("url")
+
+                    if not u:
+                        continue
+
+                    if t == "pixel":
+                        pixel_links.append(u)
+
+                    elif t == "fslv2":
+                        fslv2_links.append(u)
+
+                    elif t == "fsl":
+                        fsl_links.append(u)
+
+                # ---------------- OUTPUT ----------------
+                if pixel_links:
+                    final_text += "🟣 **Pixel Links:**\n"
+                    for u in pixel_links:
+                        final_text += f"• {href(u)}\n"
+                    final_text += "\n"
+
+                if fslv2_links:
+                    final_text += "⚡ **FSLv2 Links:**\n"
+                    for u in fslv2_links:
+                        final_text += f"• {href(u)}\n"
+                    final_text += "\n"
+
+                if fsl_links:
+                    final_text += "🟢 **FSL Links:**\n"
+                    for u in fsl_links:
+                        final_text += f"• {href(u)}\n"
                     final_text += "\n"
 
                 final_text += "━━━━━━━━━━━━━━\n\n"
