@@ -24,4 +24,4 @@ async def extract_telegram_thumb(client: Client, message: Message):
 
     # Download and send thumbnail
     thumb_path = await client.download_media(reply.video.thumbs[0])
-    await message.reply_photo(photo=thumb_path, caption="✅ <b>Extracted Telegram Video Thumbnail</b>\n\n<b><blockquote>Powered by <a href='https://t.me/MrSagarbots'>MrSagarbots</a></blockquote></b>")
+    await message.reply_photo(photo=thumb_path, caption="✅ <b>Extracted Telegram Video Thumbnail</b>\n\n<b><blockquote>Powered by <a href='https://t.me/AddaFileZ'>AddaFileZ</a></blockquote></b>")
