@@ -26,7 +26,7 @@ async def gdpack_handler(client: Client, message: Message):
 
     if not links:
         return await message.reply(
-            "⚠️ Usage:\n<code>/gdpack https://gdflix.dev/pack/XXXX</code>"
+            "⚠️ Usage:\n/gdpack https://gdflix.dev/pack/XXXX"
         )
 
     pack_url = links[0]
@@ -44,7 +44,7 @@ async def gdpack_handler(client: Client, message: Message):
         r.raise_for_status()
         data = r.json()
     except Exception as e:
-        return await msg.edit(f"❌ API Error:\n<code>{e}</code>")
+        return await msg.edit(f"❌ API Error:\n{e}")
 
     files = data.get("files", [])
     count = data.get("count", len(files))
@@ -53,13 +53,13 @@ async def gdpack_handler(client: Client, message: Message):
         return await msg.edit("❌ No files found in this pack.")
 
     text = (
-        f"📦 <b>GDFlix Pack Extracted</b>\n"
-        f"🔢 <b>Total Files:</b> {count}\n"
-        f"⏱ <b>Time:</b> {round(time.time() - start, 2)}s\n\n"
+        f"📦 GDFlix Pack Extracted\n"
+        f"🔢 Total Files: {count}\n"
+        f"⏱ Time: {round(time.time() - start, 2)}s\n\n"
     )
 
     for i, link in enumerate(files, start=1):
-        text += f"{i}. <code>{link}</code>\n"
+        text += f"{i}. {link}\n"
 
     # 🧱 TELEGRAM LIMIT SAFE
     if len(text) > 4000:
