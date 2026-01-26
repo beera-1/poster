@@ -1,12 +1,17 @@
-# Use Python 3.12 as the base
+# Use Python 3.12 slim as the base
 FROM python:3.12.7-slim
 
-# Install Node.js and Chrome dependencies for Puppeteer
+# Install system dependencies
+# We add build-essential and python3-dev to fix the 'gcc' error
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     wget \
     ca-certificates \
+    # Compilers needed for tgcrypto
+    build-essential \
+    python3-dev \
+    # Chrome/Puppeteer dependencies
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -41,26 +46,29 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
+    --no-install-recommends \
+    # Install Node.js 20.x
     && curl -sL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ott_scraper_bot
 
-# Install Python requirements
+# 1. Install Python requirements (gcc is now available to build tgcrypto)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Node requirements
+# 2. Install Node requirements for your link fetcher
 COPY package*.json ./
 RUN npm install
 
-# Copy all files
+# 3. Copy the rest of your files
 COPY . .
 
-# Create a startup script to run both
+# 4. Create a startup script to run the Python bot and Node API together
 RUN echo "#!/bin/bash\npython3 poster.py &\nnode index.js" > start.sh
 RUN chmod +x start.sh
 
+# Expose the port used by index.js
 EXPOSE 8000
 CMD ["./start.sh"]
