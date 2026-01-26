@@ -1,14 +1,12 @@
-# Step 1: Use Python as the base
+# Use Python 3.12 as the base
 FROM python:3.12.7-slim
 
-# Step 2: Install Node.js, NPM, and Chrome dependencies
+# Install Node.js and Chrome dependencies for Puppeteer
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
-    && curl -sL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y \
-    nodejs \
     wget \
+    ca-certificates \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -43,27 +41,26 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
-    --no-install-recommends \
+    && curl -sL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Step 3: Setup Work Directory
 WORKDIR /ott_scraper_bot
 
-# Step 4: Install Python Dependencies
+# Install Python requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Step 5: Install Node.js Dependencies for Puppeteer
+# Install Node requirements
 COPY package*.json ./
 RUN npm install
 
-# Step 6: Copy all files
+# Copy all files
 COPY . .
 
-# Step 7: Expose Port (for the Express API)
-EXPOSE 3000
+# Create a startup script to run both
+RUN echo "#!/bin/bash\npython3 poster.py &\nnode index.js" > start.sh
+RUN chmod +x start.sh
 
-# Step 8: Start the App
-# Note: Since you have both, you might need a process manager like PM2 
-# or a shell script to run both poster.py and index.js at once.
-CMD ["node", "index.js"]
+EXPOSE 8000
+CMD ["./start.sh"]
