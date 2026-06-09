@@ -25,7 +25,8 @@ async def start_webserver():
     runner = web.AppRunner(app)
     await runner.setup()
 
-    port = int(os.environ.get("PORT", 8000))
+    # Koyeb public port
+    port = int(os.environ.get("PORT", 8080))
 
     site = web.TCPSite(
         runner,
@@ -40,7 +41,7 @@ async def main():
     bot = ShortnerBot()
 
     await bot.start()
-    print("Bot started")
+    print("Bot started successfully")
 
     await start_webserver()
 
