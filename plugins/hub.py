@@ -20,11 +20,6 @@ async def safe_send_links(client, chat_id, text, reply_to_id=None, **kwargs):
         await client.send_message(chat_id, part, reply_to_message_id=reply_to_id, **kwargs)
 
 
-# ---------- LINK FORMATTER (FIXED: SHOWS RAW URL) ----------
-def href(url: str):
-    return url  # Returns the raw URL text so it is fully visible
-
-
 # ---------- COMMAND ----------
 @Client.on_message(filters.command(["hub", "hubcloud"]))
 async def hubcloud_handler(client: Client, message: Message):
@@ -36,13 +31,13 @@ async def hubcloud_handler(client: Client, message: Message):
 
     hubcloud_urls = []
 
-    # Case 1: URLs in command
+    # Case 1: Detect all URLs in the command line space
     if len(message.command) > 1:
         hubcloud_urls.extend(
             re.findall(r"https?://hubcloud\.\S+", " ".join(message.command[1:]))
         )
 
-    # Case 2: URLs in replied message
+    # Case 2: Detect all URLs if replying to another message text/caption
     if message.reply_to_message:
         txt = message.reply_to_message.text or message.reply_to_message.caption or ""
         hubcloud_urls.extend(re.findall(r"https?://hubcloud\.\S+", txt))
@@ -50,14 +45,15 @@ async def hubcloud_handler(client: Client, message: Message):
     if not hubcloud_urls:
         return await message.reply(
             "❌ No HubCloud links found.\n\n"
-            "`/hub <hubcloud_url>`\n"
-            "or reply with `/hub`"
+            "`/hub <url1> <url2> <url3>`\n"
+            "or reply to a list of links with `/hub`"
         )
 
     wait_msg = await message.reply("🔍 Fetching HubCloud links...")
 
     try:
         async with aiohttp.ClientSession() as session:
+            # Loops 1-by-1 through each discovered URL sequentially
             for idx, url in enumerate(hubcloud_urls, 1):
 
                 async with session.get(API_URL, params={"url": url}, timeout=90) as resp:
@@ -72,35 +68,76 @@ async def hubcloud_handler(client: Client, message: Message):
                 if not data or "links" not in data:
                     continue
 
-                # Array to hold purely the formatted links
-                link_list = []
+                # --- 1. Start Building Message Header ---
+                display_text = (
+                    f"🎬 **{data.get('title', 'Unknown Title')}**\n"
+                    f"💾 **Size:** {data.get('size', 'Unknown Size')}\n\n"
+                )
 
-                # 1. Grab Google Video URL directly if it exists
+                # --- 2. Extract Google Video URL ---
                 if data.get("google_video"):
-                    link_list.append(href(data["google_video"]))
+                    display_text += f"▶️ Google Video:\n{data['google_video']}\n\n"
 
-                # 2. Grab all URLs inside the links array
+                # --- 3. Robust URL Structure Recognition Patterns ---
+                fsl_links = []
+                pixel_zip_links = []
+                google_links = []
+                pixel_links = []
+                buzz_links = []
+
                 for item in data.get("links", []):
-                    item_url = item.get("url")
-                    if item_url:
-                        link_list.append(href(item_url))
+                    t = item.get("type", "").lower() 
+                    u = item.get("url", "")
 
-                if not link_list:
-                    continue
+                    if not u:
+                        continue
 
-                # Combine the links together cleanly using simple newlines
-                clean_output = "\n\n".join(link_list)
+                    # Recognise FSL using domain structure signature
+                    if "hub.auvps.buzz" in u.lower() or t == "fsl":
+                        fsl_links.append(u)
 
-                # Send the clean lines directly to the chat 1-by-1
+                    # Recognise Buzz Server using domain structure signature
+                    elif "bzzhr.co" in u.lower() or "buzz" in t:
+                        buzz_links.append(u)
+
+                    # Recognise PIXEL-Zip using data properties 
+                    elif t == "pixel-zip" or (t == "zip" and "pixeldrain" in u.lower()):
+                        pixel_zip_links.append(u)
+
+                    # Recognise standard Pixel Servers
+                    elif t == "pixel" or "pixeldrain" in u.lower():
+                        pixel_links.append(u)
+
+                    # Recognise Google Cloud 10GP targets
+                    elif t == "google" or "10gp" in t or "gpdl" in u.lower():
+                        google_links.append(u)
+
+                # --- 4. Append Link Group Blocks ---
+                if fsl_links:
+                    display_text += "🟢 FSL Links:\n" + "\n".join(fsl_links) + "\n\n"
+
+                if google_links:
+                    display_text += "🚀 10GP OPEN IT:\n" + "\n".join(google_links) + "\n\n"
+
+                if pixel_links:
+                    display_text += "🟣 PIXEL:\n" + "\n".join(pixel_links) + "\n\n"
+
+                if buzz_links:
+                    display_text += "🔥 BUZZ-SERVER:\n" + "\n".join(buzz_links) + "\n\n"
+
+                if pixel_zip_links:
+                    display_text += "📦 PIXEL-Zip Files:\n" + "\n".join(pixel_zip_links) + "\n\n"
+
+                # --- 5. Send Message for This Link Instantly ---
                 await safe_send_links(
                     client,
                     message.chat.id,
-                    clean_output,
+                    display_text.strip(),
                     reply_to_id=message.id,
                     disable_web_page_preview=True
                 )
 
-        # Remove searching notification block when done
+        # Clean up search status banner once all processing ends
         await wait_msg.delete()
 
     except Exception:
