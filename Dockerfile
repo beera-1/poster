@@ -1,4 +1,4 @@
-# Use Python 3.12 slim as the base
+# Use Python 3.12 slim as the base (Debian Bookworm)
 FROM python:3.12.7-slim
 
 # Install system dependencies
@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     # Chrome/Puppeteer modern core system dependencies
     fonts-liberation \
-    libasound2t64 \
+    libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
     libc6 \
