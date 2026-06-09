@@ -1,16 +1,17 @@
-# Use Python 3.12 slim as the base (Debian Bookworm)
+# Use Python 3.12 slim as the base
 FROM python:3.12.7-slim
 
 # Install system dependencies
+# We add build-essential and python3-dev to fix the 'gcc' error
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     wget \
     ca-certificates \
-    # Compilers needed for building native C extensions like tgcrypto
+    # Compilers needed for tgcrypto
     build-essential \
     python3-dev \
-    # Chrome/Puppeteer modern core system dependencies
+    # Chrome/Puppeteer dependencies
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -22,6 +23,7 @@ RUN apt-get update && apt-get install -y \
     libexpat1 \
     libfontconfig1 \
     libgbm1 \
+    libgcc1 \
     libglib2.0-0 \
     libgtk-3-0 \
     libnspr4 \
@@ -45,30 +47,28 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     xdg-utils \
     --no-install-recommends \
-    # Core injection setup loop for Node.js 20.x runtime engine
+    # Install Node.js 20.x
     && curl -sL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ott_scraper_bot
 
-# 1. Install Python requirements (gcc compiler handles tgcrypto safely now)
+# 1. Install Python requirements (gcc is now available to build tgcrypto)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 2. Install Node requirements for your link fetcher
 COPY package*.json ./
-# Tell Puppeteer to download its bundled chromium binary during docker execution
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
 RUN npm install
 
-# 3. Copy the rest of your local app files
+# 3. Copy the rest of your files
 COPY . .
 
-# 4. Create a robust, production-safe multiline startup script configuration
-RUN printf "#!/bin/bash\npython3 poster.py &\nnode index.js\n" > start.sh
+# 4. Create a startup script to run the Python bot and Node API together
+RUN echo "#!/bin/bash\npython3 poster.py &\nnode index.js" > start.sh
 RUN chmod +x start.sh
 
-# Expose the API endpoint port used by index.js
+# Expose the port used by index.js
 EXPOSE 8000
 CMD ["./start.sh"]
