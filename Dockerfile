@@ -1,6 +1,5 @@
 FROM python:3.12-slim
 
-# Install system dependencies + Chromium
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -32,33 +31,27 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean
 
 WORKDIR /app
 
-# Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Node dependencies
 COPY package*.json ./
 
-# Puppeteer settings
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 RUN npm install --omit=dev
 
-# Copy project files
 COPY . .
 
-# Startup script
 RUN printf '#!/bin/bash\npython3 poster.py &\nexec node index.js\n' > start.sh && \
     chmod +x start.sh
 
-EXPOSE 8000
+EXPOSE 8080
 
 CMD ["./start.sh"]
