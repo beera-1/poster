@@ -1,76 +1,67 @@
-# Use Python 3.12 slim as the base (Debian Bookworm)
-FROM python:3.12.7-slim
+FROM python:3.12-slim
 
-# Install system dependencies
+# Install system packages
 RUN apt-get update && apt-get install -y \
     curl \
-    gnupg \
     wget \
     ca-certificates \
-    # Compilers needed for building native C extensions like tgcrypto
+    gnupg \
     build-essential \
     python3-dev \
-    # Chrome/Puppeteer system dependencies
+    chromium \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
-    libc6 \
     libcairo2 \
     libcups2 \
     libdbus-1-3 \
-    libexpat1 \
     libfontconfig1 \
     libgbm1 \
     libglib2.0-0 \
     libgtk-3-0 \
     libnspr4 \
     libnss3 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libstdc++6 \
     libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
     libxcomposite1 \
-    libxcursor1 \
     libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
     libxrandr2 \
-    libxrender1 \
     libxss1 \
     libxtst6 \
-    lsb-release \
     xdg-utils \
-    # Install the actual stable system Chromium browser directly via apt-get
-    chromium \
-    --no-install-recommends \
-    # Core injection setup loop for Node.js 20.x runtime engine
-    && curl -sL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    --no-install-recommends
 
-WORKDIR /ott_scraper_bot
+# Install Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# 1. Install Python requirements (gcc compiler handles tgcrypto safely now)
+WORKDIR /app
+
+# Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 2. Install Node requirements for your link fetcher
+# Node dependencies
 COPY package*.json ./
-# Tell Puppeteer to SKIP downloading its own massive chromium bundle
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-RUN npm install
 
-# 3. Copy the rest of your local app files
+# Prevent Puppeteer from downloading Chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
+RUN npm install --omit=dev
+
+# Copy project files
 COPY . .
 
-# 4. Create a robust, production-safe multiline startup script configuration
-RUN printf "#!/bin/bash\npython3 poster.py &\nnode index.js\n" > start.sh
-RUN chmod +x start.sh
+# Chromium path for Puppeteer
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Expose the API endpoint port used by index.js
+# Startup script
+RUN echo '#!/bin/bash\n\
+python3 poster.py &\n\
+exec node index.js' > start.sh && chmod +x start.sh
+
 EXPOSE 8000
+
 CMD ["./start.sh"]
