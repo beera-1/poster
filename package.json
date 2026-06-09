@@ -1,7 +1,6 @@
 {
   "name": "oxxfile-fetcher",
   "version": "1.0.0",
-  "description": "Fetcher for HubCloud links",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
