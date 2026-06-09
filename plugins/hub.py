@@ -64,7 +64,6 @@ async def hubcloud_handler(client: Client, message: Message):
             for idx, url in enumerate(hubcloud_urls, 1):
 
                 async with session.get(API_URL, params={"url": url}, timeout=90) as resp:
-                    # Fix: Safe parsing block prevents Mimetype/Text error exceptions
                     if resp.status == 200:
                         try:
                             data = await resp.json()
@@ -93,11 +92,11 @@ async def hubcloud_handler(client: Client, message: Message):
                 final_text += "\n"
 
                 # ---------------- FILTERED LINKS ----------------
-                pixel_links = []
+                pixel_zip_links = []
                 fsl_links = []
                 google_links = []
+                pixel_links = []
                 buzz_links = []
-                zip_links = []
 
                 for l in data.get("links", []):
                     t = l.get("type", "").lower()
@@ -106,16 +105,17 @@ async def hubcloud_handler(client: Client, message: Message):
                     if not u:
                         continue
 
-                    if t == "pixel":
-                        pixel_links.append(u)
-                    elif t == "fsl" or t == "fslv2":
+                    # Exact structural mappings for your exact payloads
+                    if t == "pixel-zip":
+                        pixel_zip_links.append(u)
+                    elif t == "fsl":
                         fsl_links.append(u)
                     elif t == "google":
                         google_links.append(u)
-                    elif t == "buzz":
+                    elif t == "pixel":
+                        pixel_links.append(u)
+                    elif "buzz" in t:
                         buzz_links.append(u)
-                    elif t == "zip":
-                        zip_links.append(u)
 
                 # ---------------- OUTPUT ARRAYS ----------------
                 if google_links:
@@ -142,9 +142,9 @@ async def hubcloud_handler(client: Client, message: Message):
                         final_text += f"• {href(u)}\n"
                     final_text += "\n"
 
-                if zip_links:
-                    final_text += "📦 **Zip Files:**\n"
-                    for u in zip_links:
+                if pixel_zip_links:
+                    final_text += "📦 **PIXEL-Zip Files:**\n"
+                    for u in pixel_zip_links:
                         final_text += f"• {href(u)}\n"
                     final_text += "\n"
 
