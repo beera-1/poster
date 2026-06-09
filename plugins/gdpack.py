@@ -7,7 +7,7 @@ import re
 OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-API_ENDPOINT = "https://hub-fawn.vercel.app/api/bypaas/test.php"
+API_ENDPOINT = "https://hub-xi-hazel.vercel.app/api/bypaas/test.php"
 
 URL_RE = re.compile(r"https?://\S+")
 
