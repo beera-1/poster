@@ -3,7 +3,7 @@ from pyrogram.types import Message
 import aiohttp
 import re
 
-API_URL = "https://hub-fawn.vercel.app/api/bypaas/hubcloud.php"
+API_URL = "https://hub-xi-hazel.vercel.app/api/bypaas/hubcloud.php"
 OFFICIAL_GROUPS = ["-1002311378229"]
 
 MAX_LEN = 4000  # Telegram safe limit
