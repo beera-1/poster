@@ -64,10 +64,20 @@ async def hubcloud_handler(client: Client, message: Message):
             for idx, url in enumerate(hubcloud_urls, 1):
 
                 async with session.get(API_URL, params={"url": url}, timeout=90) as resp:
-                    data = await resp.json()
+                    # Fix: Safe parsing block prevents Mimetype/Text error exceptions
+                    if resp.status == 200:
+                        try:
+                            data = await resp.json()
+                        except Exception:
+                            text_fallback = await resp.text()
+                            final_text += f"❌ Server returned invalid JSON format:\n`{text_fallback[:200]}`\n\n"
+                            continue
+                    else:
+                        final_text += f"❌ HTTP Server Error ({resp.status}) for URL:\n`{url}`\n\n"
+                        continue
 
-                if "title" not in data:
-                    final_text += f"❌ Failed:\n`{url}`\n\n"
+                if not data or "title" not in data:
+                    final_text += f"❌ Failed to extract content data:\n`{url}`\n\n"
                     continue
 
                 final_text += (
@@ -84,8 +94,10 @@ async def hubcloud_handler(client: Client, message: Message):
 
                 # ---------------- FILTERED LINKS ----------------
                 pixel_links = []
-                fslv2_links = []
                 fsl_links = []
+                google_links = []
+                buzz_links = []
+                zip_links = []
 
                 for l in data.get("links", []):
                     t = l.get("type", "").lower()
@@ -96,29 +108,43 @@ async def hubcloud_handler(client: Client, message: Message):
 
                     if t == "pixel":
                         pixel_links.append(u)
-
-                    elif t == "fslv2":
-                        fslv2_links.append(u)
-
-                    elif t == "fsl":
+                    elif t == "fsl" or t == "fslv2":
                         fsl_links.append(u)
+                    elif t == "google":
+                        google_links.append(u)
+                    elif t == "buzz":
+                        buzz_links.append(u)
+                    elif t == "zip":
+                        zip_links.append(u)
 
-                # ---------------- OUTPUT ----------------
+                # ---------------- OUTPUT ARRAYS ----------------
+                if google_links:
+                    final_text += "🚀 **Cloud/Google Servers (10Gbps):**\n"
+                    for u in google_links:
+                        final_text += f"• {href(u)}\n"
+                    final_text += "\n"
+
                 if pixel_links:
                     final_text += "🟣 **Pixel Links:**\n"
                     for u in pixel_links:
                         final_text += f"• {href(u)}\n"
                     final_text += "\n"
 
-                if fslv2_links:
-                    final_text += "⚡ **FSLv2 Links:**\n"
-                    for u in fslv2_links:
-                        final_text += f"• {href(u)}\n"
-                    final_text += "\n"
-
                 if fsl_links:
                     final_text += "🟢 **FSL Links:**\n"
                     for u in fsl_links:
+                        final_text += f"• {href(u)}\n"
+                    final_text += "\n"
+
+                if buzz_links:
+                    final_text += "🔥 **Buzz Servers:**\n"
+                    for u in buzz_links:
+                        final_text += f"• {href(u)}\n"
+                    final_text += "\n"
+
+                if zip_links:
+                    final_text += "📦 **Zip Files:**\n"
+                    for u in zip_links:
                         final_text += f"• {href(u)}\n"
                     final_text += "\n"
 
@@ -131,4 +157,4 @@ async def hubcloud_handler(client: Client, message: Message):
         )
 
     except Exception as e:
-        await wait_msg.edit(f"⚠️ Error:\n`{e}`")
+        await wait_msg.edit(f"⚠️ Critical Handler Error:\n`{e}`")
