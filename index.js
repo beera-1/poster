@@ -74,7 +74,7 @@ app.get("/fetch", async (req, res) => {
         });
     } finally {
         if (browser) {
-            await browser.close();
+            await browser.close().catch(() => {});
         }
     }
 });
