@@ -3,17 +3,13 @@ const puppeteer = require("puppeteer");
 
 const app = express();
 
-app.get("/", (req, res) => {
-    res.send("Server is running");
-});
-
 app.get("/fetch", async (req, res) => {
     const targetUrl = req.query.url;
 
     if (!targetUrl) {
         return res.status(400).json({
             success: false,
-            error: "Missing ?url="
+            error: "Missing url parameter"
         });
     }
 
@@ -28,10 +24,7 @@ app.get("/fetch", async (req, res) => {
             args: [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--no-zygote",
-                "--single-process"
+                "--disable-dev-shm-usage"
             ]
         });
 
@@ -44,64 +37,50 @@ app.get("/fetch", async (req, res) => {
 
         const hubLink = await page.evaluate(() => {
             return new Promise((resolve) => {
-                let attempts = 0;
+                let count = 0;
 
-                const interval = setInterval(() => {
+                const timer = setInterval(() => {
                     const links = [...document.querySelectorAll("a")];
 
                     const found = links.find(
-                        a =>
-                            a.href &&
-                            (
-                                a.href.includes("hubcloud") ||
-                                a.href.includes("hubcloud.foo")
-                            )
+                        a => a.href && a.href.includes("hubcloud")
                     );
 
                     if (found) {
-                        clearInterval(interval);
+                        clearInterval(timer);
                         resolve(found.href);
                         return;
                     }
 
-                    attempts++;
+                    count++;
 
-                    if (attempts >= 30) {
-                        clearInterval(interval);
+                    if (count >= 30) {
+                        clearInterval(timer);
                         resolve(null);
                     }
                 }, 1000);
             });
         });
 
-        if (!hubLink) {
-            return res.status(404).json({
-                success: false,
-                message: "HubCloud link not found"
-            });
-        }
-
-        return res.json({
+        res.json({
             success: true,
             link: hubLink
         });
 
     } catch (err) {
-        console.error(err);
-
-        return res.status(500).json({
+        res.status(500).json({
             success: false,
             error: err.message
         });
     } finally {
         if (browser) {
-            await browser.close().catch(() => {});
+            await browser.close();
         }
     }
 });
 
-const PORT = process.env.PORT || 8000;
+const PORT = 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`API running on ${PORT}`);
 });
