@@ -9,21 +9,20 @@ OFFICIAL_GROUPS = ["-1002311378229"]
 MAX_LEN = 4000  # Telegram safe limit
 
 
-# ---------- SAFE SEND / EDIT ----------
-async def safe_edit_or_send(msg, text, **kwargs):
+# ---------- SAFE SEND ----------
+async def safe_send_links(client, chat_id, text, reply_to_id=None, **kwargs):
     if len(text) <= MAX_LEN:
-        await msg.edit(text, **kwargs)
+        await client.send_message(chat_id, text, reply_to_message_id=reply_to_id, **kwargs)
         return
 
     parts = [text[i:i + MAX_LEN] for i in range(0, len(text), MAX_LEN)]
-    await msg.edit(parts[0], **kwargs)
-    for part in parts[1:]:
-        await msg.reply(part, **kwargs)
+    for part in parts:
+        await client.send_message(chat_id, part, reply_to_message_id=reply_to_id, **kwargs)
 
 
-# ---------- LINK FORMATTER ----------
+# ---------- LINK FORMATTER (FIXED: SHOWS RAW URL) ----------
 def href(url: str):
-    return f"[𝗟𝗜𝗡𝗞]({url})"
+    return url  # Returns the raw URL text so it is fully visible
 
 
 # ---------- COMMAND ----------
@@ -57,8 +56,6 @@ async def hubcloud_handler(client: Client, message: Message):
 
     wait_msg = await message.reply("🔍 Fetching HubCloud links...")
 
-    final_text = "✅ **HubCloud Extracted Links**\n\n"
-
     try:
         async with aiohttp.ClientSession() as session:
             for idx, url in enumerate(hubcloud_urls, 1):
@@ -68,93 +65,43 @@ async def hubcloud_handler(client: Client, message: Message):
                         try:
                             data = await resp.json()
                         except Exception:
-                            text_fallback = await resp.text()
-                            final_text += f"❌ Server returned invalid JSON format:\n`{text_fallback[:200]}`\n\n"
                             continue
                     else:
-                        final_text += f"❌ HTTP Server Error ({resp.status}) for URL:\n`{url}`\n\n"
                         continue
 
-                if not data or "title" not in data:
-                    final_text += f"❌ Failed to extract content data:\n`{url}`\n\n"
+                if not data or "links" not in data:
                     continue
 
-                final_text += (
-                    f"🎬 **{data.get('title', 'Unknown')}**\n"
-                    f"💾 **Size:** {data.get('size', 'Unknown')}\n"
-                    f"🔗 **Source:** {href(data.get('source'))}\n"
+                # Array to hold purely the formatted links
+                link_list = []
+
+                # 1. Grab Google Video URL directly if it exists
+                if data.get("google_video"):
+                    link_list.append(href(data["google_video"]))
+
+                # 2. Grab all URLs inside the links array
+                for item in data.get("links", []):
+                    item_url = item.get("url")
+                    if item_url:
+                        link_list.append(href(item_url))
+
+                if not link_list:
+                    continue
+
+                # Combine the links together cleanly using simple newlines
+                clean_output = "\n\n".join(link_list)
+
+                # Send the clean lines directly to the chat 1-by-1
+                await safe_send_links(
+                    client,
+                    message.chat.id,
+                    clean_output,
+                    reply_to_id=message.id,
+                    disable_web_page_preview=True
                 )
 
-                # ---------------- GOOGLE VIDEO ----------------
-                if data.get("google_video"):
-                    final_text += f"▶️ **Google Video:** {href(data['google_video'])}\n"
+        # Remove searching notification block when done
+        await wait_msg.delete()
 
-                final_text += "\n"
-
-                # ---------------- FILTERED LINKS ----------------
-                pixel_zip_links = []
-                fsl_links = []
-                google_links = []
-                pixel_links = []
-                buzz_links = []
-
-                for l in data.get("links", []):
-                    t = l.get("type", "").lower()
-                    u = l.get("url")
-
-                    if not u:
-                        continue
-
-                    # Exact structural mappings for your exact payloads
-                    if t == "pixel-zip":
-                        pixel_zip_links.append(u)
-                    elif t == "fsl":
-                        fsl_links.append(u)
-                    elif t == "google":
-                        google_links.append(u)
-                    elif t == "pixel":
-                        pixel_links.append(u)
-                    elif "buzz" in t:
-                        buzz_links.append(u)
-
-                # ---------------- OUTPUT ARRAYS ----------------
-                if google_links:
-                    final_text += "🚀 **Cloud/Google Servers (10Gbps):**\n"
-                    for u in google_links:
-                        final_text += f"• {href(u)}\n"
-                    final_text += "\n"
-
-                if pixel_links:
-                    final_text += "🟣 **Pixel Links:**\n"
-                    for u in pixel_links:
-                        final_text += f"• {href(u)}\n"
-                    final_text += "\n"
-
-                if fsl_links:
-                    final_text += "🟢 **FSL Links:**\n"
-                    for u in fsl_links:
-                        final_text += f"• {href(u)}\n"
-                    final_text += "\n"
-
-                if buzz_links:
-                    final_text += "🔥 **Buzz Servers:**\n"
-                    for u in buzz_links:
-                        final_text += f"• {href(u)}\n"
-                    final_text += "\n"
-
-                if pixel_zip_links:
-                    final_text += "📦 **PIXEL-Zip Files:**\n"
-                    for u in pixel_zip_links:
-                        final_text += f"• {href(u)}\n"
-                    final_text += "\n"
-
-                final_text += "━━━━━━━━━━━━━━\n\n"
-
-        await safe_edit_or_send(
-            wait_msg,
-            final_text,
-            disable_web_page_preview=True
-        )
-
-    except Exception as e:
-        await wait_msg.edit(f"⚠️ Critical Handler Error:\n`{e}`")
+    except Exception:
+        pass
