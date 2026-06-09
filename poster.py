@@ -1,10 +1,9 @@
-import aiohttp
-from aiohttp import web
-from config import *  # <- fixed import
-from pyrogram import Client
+import os
 import asyncio
+from aiohttp import web
+from pyrogram import Client
+from config import *
 
-# ===== BOT INSTANCE =====
 class ShortnerBot(Client):
     def __init__(self):
         super().__init__(
@@ -16,29 +15,35 @@ class ShortnerBot(Client):
             workers=100,
         )
 
-# ===== HEALTH CHECK =====
 async def health_handler(request):
-    return web.Response(text="✅ Bot is running on Koyeb")
+    return web.Response(text="Bot running")
 
 async def start_webserver():
     app = web.Application()
-    app.router.add_get("/", health_handler)  # Koyeb health ping
+    app.router.add_get("/", health_handler)
+
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8080)
-    await site.start()
-    print("🌐 Health check server running on port 8080")
 
-# ===== MAIN =====
+    port = int(os.environ.get("PORT", 8000))
+
+    site = web.TCPSite(
+        runner,
+        "0.0.0.0",
+        port
+    )
+
+    await site.start()
+    print(f"Health server started on {port}")
+
 async def main():
     bot = ShortnerBot()
-    await bot.start()
-    print("🤖 Bot started successfully!")
 
-    # Run health check server in parallel
+    await bot.start()
+    print("Bot started")
+
     await start_webserver()
 
-    # Keep running until Ctrl+C / Koyeb stop
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
