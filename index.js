@@ -1,58 +1,107 @@
-// Install: npm install express puppeteer
-const express = require('express');
-const puppeteer = require('puppeteer');
+const express = require("express");
+const puppeteer = require("puppeteer");
+
 const app = express();
 
-app.get('/fetch', async (req, res) => {
+app.get("/", (req, res) => {
+    res.send("Server is running");
+});
+
+app.get("/fetch", async (req, res) => {
     const targetUrl = req.query.url;
-    if (!targetUrl) return res.status(400).send('URL missing');
+
+    if (!targetUrl) {
+        return res.status(400).json({
+            success: false,
+            error: "Missing ?url="
+        });
+    }
 
     let browser;
+
     try {
-        // Puppeteer browser launch karna
         browser = await puppeteer.launch({
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            executablePath:
+                process.env.PUPPETEER_EXECUTABLE_PATH ||
+                "/usr/bin/chromium",
+            headless: true,
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--no-zygote",
+                "--single-process"
+            ]
         });
+
         const page = await browser.newPage();
 
-        // OxxFile page par jana
-        await page.goto(targetUrl, { waitUntil: 'networkidle2' });
+        await page.goto(targetUrl, {
+            waitUntil: "networkidle2",
+            timeout: 60000
+        });
 
-        [span_3](start_span)// Wait karna jab tak "OxxFile" ka dynamic content load na ho jaye[span_3](end_span)
-        // Hum specifically HubCloud link search karenge
-        const hubLink = await page.evaluate(async () => {
+        const hubLink = await page.evaluate(() => {
             return new Promise((resolve) => {
-                let checkCount = 0;
+                let attempts = 0;
+
                 const interval = setInterval(() => {
-                    // Page ke saare links check karna
-                    const links = Array.from(document.querySelectorAll('a'));
-                    const found = links.find(a => a.href.includes('hubcloud.foo'));
-                    
+                    const links = [...document.querySelectorAll("a")];
+
+                    const found = links.find(
+                        a =>
+                            a.href &&
+                            (
+                                a.href.includes("hubcloud") ||
+                                a.href.includes("hubcloud.foo")
+                            )
+                    );
+
                     if (found) {
                         clearInterval(interval);
                         resolve(found.href);
+                        return;
                     }
-                    
-                    if (checkCount > 20) { // 10 seconds timeout
+
+                    attempts++;
+
+                    if (attempts >= 30) {
                         clearInterval(interval);
                         resolve(null);
                     }
-                    checkCount++;
-                }, 500);
+                }, 1000);
             });
         });
 
-        if (hubLink) {
-            res.json({ success: true, link: hubLink });
-        } else {
-            res.status(404).json({ success: false, message: "Link generated nahi hua" });
+        if (!hubLink) {
+            return res.status(404).json({
+                success: false,
+                message: "HubCloud link not found"
+            });
         }
 
-    } catch (e) {
-        res.status(500).json({ error: e.message });
+        return res.json({
+            success: true,
+            link: hubLink
+        });
+
+    } catch (err) {
+        console.error(err);
+
+        return res.status(500).json({
+            success: false,
+            error: err.message
+        });
     } finally {
-        if (browser) await browser.close();
+        if (browser) {
+            await browser.close().catch(() => {});
+        }
     }
 });
 
-app.listen(process.env.PORT || 3000);
+const PORT = process.env.PORT || 8000;
+
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+});
