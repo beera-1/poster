@@ -10,7 +10,7 @@ import time
 OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-GD_API = "https://hub-fawn.vercel.app/api/bypaas/gdflix.php?url="
+GD_API = "https://hub-xi-hazel.vercel.app/api/bypaas/gdflix.php?url="
 
 # ========================= HELPERS =========================
 
