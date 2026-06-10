@@ -16,7 +16,7 @@ GD_API = "https://hub-xi-hazel.vercel.app/api/bypaas/gdflix.php?url="
 
 def format_href(link):
     if not link:
-        return "Not Found"
+        return "❌ Not Found"
     return f'<a href="{link}">Link</a>'
 
 def scan(text, pattern):
@@ -36,22 +36,55 @@ def fetch_from_api(gd_url):
     try:
         r = requests.get(GD_API + gd_url, timeout=15)
         j = r.json()
-        if j.get("status") != "success":
+        
+        # FIXED: Your Vercel API outputs {"success": true}, not {"status": "success"}
+        if not j.get("success"):
             return None
 
         d = j["data"]
+        downloads = d.get("downloads", [])
+
+        # Placeholders for mapped links
+        google_link = None
+        cloud_link = None
+        gofile_link = None
+        zfile_link = None
+        pixeldrain_link = None
+        telegram_link = None
+
+        # Loop through dynamic list objects to match labels natively
+        for item in downloads:
+            item_type = item.get("type")
+            item_url = item.get("url")
+
+            if item_type == "Instant DL":
+                # Grab the underlying resolved googleUrl if found
+                google_link = item.get("googleUrl") or item_url
+            elif item_type == "Cloud Download (R2)":
+                cloud_link = item_url
+            elif item_type == "Fast Cloud / Zipdisk":
+                zfile_link = item_url
+            elif "PixelDrain" in item_type:
+                pixeldrain_link = item_url
+            elif "Telegram" in item_type:
+                # Prioritize bot download start structures over standard chat links
+                if "bot=" in item_url or not telegram_link:
+                    telegram_link = item_url
+            elif "GoFile" in item_type:
+                gofile_link = item_url
+
         return {
-            "title": d.get("title", "Unknown"),
-            "size": d.get("size", "Unknown"),
-            "google": format_href(d.get("google")),
-            "cloud": format_href(d.get("cloud")),
-            "gofile": format_href(d.get("gofile")),
-            "zfile": format_href(d.get("zfile")),
-            "pixeldrain": format_href(d.get("pixeldrain")),
-            "telegram": format_href(d.get("telegram")),
-            "final_url": d.get("final_url")
+            "title": d.get("fileName", "Unknown File"),
+            "size": "Check Link",  # Add extraction variable inside your API logic if needed
+            "google": format_href(google_link),
+            "cloud": format_href(cloud_link),
+            "gofile": format_href(gofile_link),
+            "zfile": format_href(zfile_link),
+            "pixeldrain": format_href(pixeldrain_link),
+            "telegram": format_href(telegram_link)
         }
-    except:
+    except Exception as e:
+        print(f"API parsing error structural fallback triggered: {e}")
         return None
 
 # ========================= SCRAPER (FALLBACK) =========================
@@ -62,6 +95,9 @@ def scrape_gdflix(url):
     text = html
 
     title = soup.find("title").text.strip() if soup.find("title") else "Unknown"
+    if "GDFlix | " in title:
+        title = title.replace("GDFlix | ", "")
+        
     size = scan(text, r"[\d\.]+\s*(GB|MB)") or "Unknown"
 
     google = scan(text, r"https://video-downloads\.googleusercontent\.com/[^\"]+")
@@ -73,15 +109,11 @@ def scrape_gdflix(url):
 
     zfile = scan(text, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
 
-    # GOFILE (API-like method)
+    # GOFILE
     gf = None
-    multiup = scan(text, r"https://new\d+\.gdflix\.net/realtime/multiup\.php\?upload=[A-Za-z0-9]+")
+    multiup = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+")
     if multiup:
-        m1_html, _ = fetch_html(multiup)
-        mirror = scan(m1_html, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
-        if mirror:
-            m2_html, _ = fetch_html(mirror)
-            gf = scan(m2_html, r"https://gofile\.io/d/[A-Za-z0-9]+")
+        gf = multiup
 
     return {
         "title": title,
@@ -91,16 +123,15 @@ def scrape_gdflix(url):
         "gofile": format_href(gf),
         "zfile": format_href(zfile),
         "pixeldrain": format_href(pix),
-        "telegram": format_href(tg),
-        "final_url": final_url
+        "telegram": format_href(tg)
     }
 
 # ========================= OUTPUT FORMAT =========================
 
 def format_bypass_message(d, message, elapsed):
     return (
-        f"☰ {d['title']}\n\n"
-        f"1. 📚 **Title :-** {d['title']}\n"
+        f"☰ **Bypassed File Data**\n\n"
+        f"📚 **Title :-** `{d['title']}`\n"
         f"┃\n"
         f"┠ 💾 **Size :-** {d['size']}\n"
         f"┃\n"
@@ -143,10 +174,11 @@ async def gdflix_handler(client: Client, message: Message):
         # 🔥 API FIRST
         data = fetch_from_api(url)
 
-        # ♻️ FALLBACK TO SCRAPER
+        # ♻️ FALLBACK TO LOCAL SCRAPER
         if not data:
             data = scrape_gdflix(url)
 
         await msg.edit(
-            format_bypass_message(data, message, round(time.time() - start, 2))
+            format_bypass_message(data, message, round(time.time() - start, 2)),
+            disable_web_page_preview=True
         )
