@@ -30,62 +30,73 @@ def fetch_html(url):
     except:
         return "", url
 
-# ========================= API FETCH =========================
+# ========================= API FETCH (WITH SMART WAIT POLLING) =========================
 
 def fetch_from_api(gd_url):
-    try:
-        r = requests.get(GD_API + gd_url, timeout=15)
-        j = r.json()
-        
-        # FIXED: Your Vercel API outputs {"success": true}, not {"status": "success"}
-        if not j.get("success"):
-            return None
+    # Poll up to 3 times to allow asynchronous background resolution tasks on Vercel to finish
+    for attempt in range(3):
+        try:
+            r = requests.get(GD_API + gd_url, timeout=15)
+            j = r.json()
+            
+            # Match the boolean "success": true field from your Vercel API
+            if not j.get("success"):
+                return None
 
-        d = j["data"]
-        downloads = d.get("downloads", [])
+            d = j["data"]
+            downloads = d.get("downloads", [])
 
-        # Placeholders for mapped links
-        google_link = None
-        cloud_link = None
-        gofile_link = None
-        zfile_link = None
-        pixeldrain_link = None
-        telegram_link = None
+            google_link = None
+            cloud_link = None
+            gofile_link = None
+            zfile_link = None
+            pixeldrain_link = None
+            telegram_link = None
 
-        # Loop through dynamic list objects to match labels natively
-        for item in downloads:
-            item_type = item.get("type")
-            item_url = item.get("url")
+            # Map the response properties out from the array format dynamically
+            for item in downloads:
+                item_type = item.get("type")
+                item_url = item.get("url")
 
-            if item_type == "Instant DL":
-                # Grab the underlying resolved googleUrl if found
-                google_link = item.get("googleUrl") or item_url
-            elif item_type == "Cloud Download (R2)":
-                cloud_link = item_url
-            elif item_type == "Fast Cloud / Zipdisk":
-                zfile_link = item_url
-            elif "PixelDrain" in item_type:
-                pixeldrain_link = item_url
-            elif "Telegram" in item_type:
-                # Prioritize bot download start structures over standard chat links
-                if "bot=" in item_url or not telegram_link:
-                    telegram_link = item_url
-            elif "GoFile" in item_type:
-                gofile_link = item_url
+                if item_type == "Instant DL":
+                    # Grab the underlying resolved googleusercontent link if ready
+                    google_link = item.get("googleUrl") or item_url
+                elif item_type == "Cloud Download (R2)":
+                    cloud_link = item_url
+                elif item_type == "Fast Cloud / Zipdisk":
+                    zfile_link = item_url
+                elif "PixelDrain" in item_type:
+                    pixeldrain_link = item_url
+                elif "Telegram" in item_type:
+                    if "bot=" in item_url or not telegram_link:
+                        telegram_link = item_url
+                elif "GoFile" in item_type:
+                    gofile_link = item_url
 
-        return {
-            "title": d.get("fileName", "Unknown File"),
-            "size": "Check Link",  # Add extraction variable inside your API logic if needed
-            "google": format_href(google_link),
-            "cloud": format_href(cloud_link),
-            "gofile": format_href(gofile_link),
-            "zfile": format_href(zfile_link),
-            "pixeldrain": format_href(pixeldrain_link),
-            "telegram": format_href(telegram_link)
-        }
-    except Exception as e:
-        print(f"API parsing error structural fallback triggered: {e}")
-        return None
+            # IF CRITICAL GOOGLE LINK IS STILL PROCESSING (Stuck on busycdn format), wait and try again
+            if (not google_link or "instant.busycdn" in str(google_link)) and attempt < 2:
+                print(f"[Attempt {attempt + 1}] Google Link is still tracing redirects. Waiting 1.5s...")
+                time.sleep(1.5)
+                continue
+
+            return {
+                "title": d.get("fileName", "Unknown File"),
+                "size": "Check Link",  
+                "google": format_href(google_link),
+                "cloud": format_href(cloud_link),
+                "gofile": format_href(gofile_link),
+                "zfile": format_href(zfile_link),
+                "pixeldrain": format_href(pixeldrain_link),
+                "telegram": format_href(telegram_link),
+                "final_url": gd_url
+            }
+        except Exception as e:
+            print(f"API Fetch Error on attempt {attempt + 1}: {e}")
+            if attempt < 2:
+                time.sleep(1.5)
+            else:
+                return None
+    return None
 
 # ========================= SCRAPER (FALLBACK) =========================
 
@@ -109,7 +120,6 @@ def scrape_gdflix(url):
 
     zfile = scan(text, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
 
-    # GOFILE
     gf = None
     multiup = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+")
     if multiup:
@@ -123,7 +133,8 @@ def scrape_gdflix(url):
         "gofile": format_href(gf),
         "zfile": format_href(zfile),
         "pixeldrain": format_href(pix),
-        "telegram": format_href(tg)
+        "telegram": format_href(tg),
+        "final_url": final_url
     }
 
 # ========================= OUTPUT FORMAT =========================
