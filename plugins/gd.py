@@ -10,13 +10,13 @@ import time
 OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# Using your updated Vercel backend URL
+# Synchronized with your updated Vercel backend deployment instance
 GD_API = "https://hub-xi-hazel.vercel.app/api/bypaas/gdflix.php?url="
 
 # ========================= HELPERS =========================
 
 def format_href(link):
-    if not link:
+    if not link or "instant.busycdn" in str(link):
         return "❌ Not Found"
     return f'<a href="{link}">Link</a>'
 
@@ -31,15 +31,16 @@ def fetch_html(url):
     except:
         return "", url
 
-# ========================= API FETCH (WITH RETRY POLLING) =========================
+# ========================= API FETCH (WITH STRICT ADAPTIVE POLLING) =========================
 
 def fetch_from_api(gd_url):
+    # Triggers up to 3 retry loops to let async Vercel redirect tracers catch the google link
     for attempt in range(3):
         try:
             r = requests.get(GD_API + gd_url)
             j = r.json()
             
-            # Matches the true/false success variable from your Vercel JSON response
+            # Reads the true/false success state from your Vercel JSON response
             if not j.get("success"):
                 return None
 
@@ -54,13 +55,19 @@ def fetch_from_api(gd_url):
             telegram_link = None
             direct_mgt_link = None
 
-            # Loop through the array from the new API structure
+            # Process layout mirrors from the JSON response list array
             for item in downloads:
                 item_type = item.get("type")
                 item_url = item.get("url")
 
                 if item_type == "Instant DL":
-                    google_link = item.get("googleUrl") or item_url
+                    # STRICT ASSIGNMENT: Look exclusively for the deep traced googleUrl
+                    google_link = item.get("googleUrl")
+                    
+                    # Final emergency assignment if we run entirely out of backend execution retries
+                    if not google_link and attempt == 2:
+                        google_link = item_url
+                        
                 elif item_type == "Cloud Download (R2)":
                     cloud_link = item_url
                 elif item_type == "Fast Cloud / Zipdisk":
@@ -75,9 +82,10 @@ def fetch_from_api(gd_url):
                 elif "Direct Server (MGT)" in item_type:
                     direct_mgt_link = item_url
 
-            # If the async task on Vercel is still tracking redirects, wait 2.5s and re-poll
+            # IF THE LINK IS MISSING OR STILL BUSYCDN: Pause and poll again to catch the Google Link
             if (not google_link or "instant.busycdn" in str(google_link)) and attempt < 2:
-                time.sleep(2.5)
+                print(f"[Attempt {attempt + 1}] Deep redirect tracking in progress. Retrying in 3.0s...")
+                time.sleep(3.0)
                 continue
 
             return {
@@ -95,12 +103,12 @@ def fetch_from_api(gd_url):
         except Exception as e:
             print(f"API Extraction trace exception on attempt {attempt + 1}: {e}")
             if attempt < 2:
-                time.sleep(2.5)
+                time.sleep(3.0)
             else:
                 return None
     return None
 
-# ========================= SCRAPER (FALLBACK) =========================
+# ========================= SCRAPER (FALLBACK ENGINE) =========================
 
 def scrape_gdflix(url):
     html, final_url = fetch_html(url)
@@ -123,7 +131,7 @@ def scrape_gdflix(url):
 
     zfile = scan(text, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
 
-    # Support fallback matching for both old and new GoFile mirror configurations
+    # Universal alignment mapping for fallback multiup/goflix string routing targets
     gf = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+") or scan(text, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
 
     return {
@@ -186,10 +194,10 @@ async def gdflix_handler(client: Client, message: Message):
         msg = await message.reply("⏳ Processing extraction arrays...")
         start = time.time()
 
-        # 🔥 Try API Extraction Sequence First
+        # 🔥 Run API Parsing Flow 
         data = fetch_from_api(url)
 
-        # ♻️ Local Parser Fallback
+        # ♻️ Local RegEx Fallback Parsing
         if not data:
             data = scrape_gdflix(url)
 
@@ -198,5 +206,6 @@ async def gdflix_handler(client: Client, message: Message):
             disable_web_page_preview=True
         )
         
+        # Spacing pause prevents crushing serverless runtimes sequentially
         if len(links) > 1:
             time.sleep(3.0)
