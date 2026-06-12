@@ -25,21 +25,22 @@ def scan(text, pattern):
 
 def fetch_html(url):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=12)
+        # REMOVED TIMEOUT: Allow slow servers to respond completely
+        r = requests.get(url, headers=HEADERS)
         return r.text, r.url
     except:
         return "", url
 
-# ========================= API FETCH (WITH SMART WAIT POLLING) =========================
+# ========================= API FETCH (POLLING FOR DEEP EXTRACTION) =========================
 
 def fetch_from_api(gd_url):
-    # Poll up to 3 times to allow asynchronous background resolution tasks on Vercel to finish
+    # Dynamic loop allows backend asynchronous resolution chains to land safely
     for attempt in range(3):
         try:
-            r = requests.get(GD_API + gd_url, timeout=15)
+            # REMOVED TIMEOUT: Ensure we don't drop slow API executions prematurely
+            r = requests.get(GD_API + gd_url)
             j = r.json()
             
-            # Match the boolean "success": true field from your Vercel API
             if not j.get("success"):
                 return None
 
@@ -53,13 +54,11 @@ def fetch_from_api(gd_url):
             pixeldrain_link = None
             telegram_link = None
 
-            # Map the response properties out from the array format dynamically
             for item in downloads:
                 item_type = item.get("type")
                 item_url = item.get("url")
 
                 if item_type == "Instant DL":
-                    # Grab the underlying resolved googleusercontent link if ready
                     google_link = item.get("googleUrl") or item_url
                 elif item_type == "Cloud Download (R2)":
                     cloud_link = item_url
@@ -73,10 +72,9 @@ def fetch_from_api(gd_url):
                 elif "GoFile" in item_type:
                     gofile_link = item_url
 
-            # IF CRITICAL GOOGLE LINK IS STILL PROCESSING (Stuck on busycdn format), wait and try again
+            # If the underlying googleUrl parameter is still processing or hidden behind busycdn, pause and re-poll
             if (not google_link or "instant.busycdn" in str(google_link)) and attempt < 2:
-                print(f"[Attempt {attempt + 1}] Google Link is still tracing redirects. Waiting 1.5s...")
-                time.sleep(1.5)
+                time.sleep(2.5)
                 continue
 
             return {
@@ -91,9 +89,9 @@ def fetch_from_api(gd_url):
                 "final_url": gd_url
             }
         except Exception as e:
-            print(f"API Fetch Error on attempt {attempt + 1}: {e}")
+            print(f"API Extraction trace exception on attempt {attempt + 1}: {e}")
             if attempt < 2:
-                time.sleep(1.5)
+                time.sleep(2.5)
             else:
                 return None
     return None
@@ -179,7 +177,7 @@ async def gdflix_handler(client: Client, message: Message):
         return await message.reply("⚠️ Usage: /gd <gdflix link>")
 
     for url in links[:8]:
-        msg = await message.reply("⏳ Processing...")
+        msg = await message.reply("⏳ Processing extraction arrays...")
         start = time.time()
 
         # 🔥 API FIRST
@@ -193,3 +191,7 @@ async def gdflix_handler(client: Client, message: Message):
             format_bypass_message(data, message, round(time.time() - start, 2)),
             disable_web_page_preview=True
         )
+        
+        # Spacer delay to separate concurrent execution streams safely
+        if len(links) > 1:
+            time.sleep(3.0)
