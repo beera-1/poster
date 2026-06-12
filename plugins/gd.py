@@ -25,7 +25,6 @@ def scan(text, pattern):
 
 def fetch_html(url):
     try:
-        # REMOVED TIMEOUT: Allow slow servers to respond completely
         r = requests.get(url, headers=HEADERS)
         return r.text, r.url
     except:
@@ -34,10 +33,8 @@ def fetch_html(url):
 # ========================= API FETCH (POLLING FOR DEEP EXTRACTION) =========================
 
 def fetch_from_api(gd_url):
-    # Dynamic loop allows backend asynchronous resolution chains to land safely
     for attempt in range(3):
         try:
-            # REMOVED TIMEOUT: Ensure we don't drop slow API executions prematurely
             r = requests.get(GD_API + gd_url)
             j = r.json()
             
@@ -53,6 +50,7 @@ def fetch_from_api(gd_url):
             zfile_link = None
             pixeldrain_link = None
             telegram_link = None
+            direct_mgt_link = None  # ADDED: Placeholder variable
 
             for item in downloads:
                 item_type = item.get("type")
@@ -71,8 +69,10 @@ def fetch_from_api(gd_url):
                         telegram_link = item_url
                 elif "GoFile" in item_type:
                     gofile_link = item_url
+                elif "Direct Server (MGT)" in item_type:
+                    direct_mgt_link = item_url  # ADDED: Extract from API response
 
-            # If the underlying googleUrl parameter is still processing or hidden behind busycdn, pause and re-poll
+            # If the underlying googleUrl parameter is still processing, pause and re-poll
             if (not google_link or "instant.busycdn" in str(google_link)) and attempt < 2:
                 time.sleep(2.5)
                 continue
@@ -86,6 +86,7 @@ def fetch_from_api(gd_url):
                 "zfile": format_href(zfile_link),
                 "pixeldrain": format_href(pixeldrain_link),
                 "telegram": format_href(telegram_link),
+                "direct_mgt": format_href(direct_mgt_link),  # ADDED: Return to formatter
                 "final_url": gd_url
             }
         except Exception as e:
@@ -112,6 +113,7 @@ def scrape_gdflix(url):
     google = scan(text, r"https://video-downloads\.googleusercontent\.com/[^\"]+")
     pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
     tg = scan(text, r"https://t\.me/gdflix[^\"]+")
+    mgt = scan(text, r"https://[A-Za-z0-9\.\-]+\.indexserver\.xyz/[^\"]+")  # ADDED: Fallback regex parser
 
     cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"]+")
     cloud = urllib.parse.unquote(cloud_raw.split("url=")[-1]) if cloud_raw else None
@@ -119,7 +121,7 @@ def scrape_gdflix(url):
     zfile = scan(text, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
 
     gf = None
-    multiup = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+")
+    multiup = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+") or scan(text, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
     if multiup:
         gf = multiup
 
@@ -132,6 +134,7 @@ def scrape_gdflix(url):
         "zfile": format_href(zfile),
         "pixeldrain": format_href(pix),
         "telegram": format_href(tg),
+        "direct_mgt": format_href(mgt),  # ADDED: Fallback array entry
         "final_url": final_url
     }
 
@@ -154,7 +157,9 @@ def format_bypass_message(d, message, elapsed):
         f"┃\n"
         f"┠ 🖼 **PixelDrain :-** {d['pixeldrain']}\n"
         f"┃\n"
-        f"┖ 📥 **Telegram File :-** {d['telegram']}\n\n"
+        f"┠ 📥 **Telegram File :-** {d['telegram']}\n"
+        f"┃\n"
+        f"┖ 🚀 **Direct Server [MGT] :-** {d['direct_mgt']}\n\n"  # ADDED: Line added dynamically to display layout card
         f"⏱️ **Bypassed in {elapsed} sec**\n"
         f"<b>Requested By :</b> {message.from_user.mention}"
     )
@@ -192,6 +197,5 @@ async def gdflix_handler(client: Client, message: Message):
             disable_web_page_preview=True
         )
         
-        # Spacer delay to separate concurrent execution streams safely
         if len(links) > 1:
             time.sleep(3.0)
