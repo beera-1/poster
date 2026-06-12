@@ -10,6 +10,7 @@ import time
 OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+# Using your updated Vercel backend URL
 GD_API = "https://hub-xi-hazel.vercel.app/api/bypaas/gdflix.php?url="
 
 # ========================= HELPERS =========================
@@ -30,7 +31,7 @@ def fetch_html(url):
     except:
         return "", url
 
-# ========================= API FETCH (POLLING FOR DEEP EXTRACTION) =========================
+# ========================= API FETCH (WITH RETRY POLLING) =========================
 
 def fetch_from_api(gd_url):
     for attempt in range(3):
@@ -38,6 +39,7 @@ def fetch_from_api(gd_url):
             r = requests.get(GD_API + gd_url)
             j = r.json()
             
+            # Matches the true/false success variable from your Vercel JSON response
             if not j.get("success"):
                 return None
 
@@ -50,8 +52,9 @@ def fetch_from_api(gd_url):
             zfile_link = None
             pixeldrain_link = None
             telegram_link = None
-            direct_mgt_link = None  # ADDED: Placeholder variable
+            direct_mgt_link = None
 
+            # Loop through the array from the new API structure
             for item in downloads:
                 item_type = item.get("type")
                 item_url = item.get("url")
@@ -70,9 +73,9 @@ def fetch_from_api(gd_url):
                 elif "GoFile" in item_type:
                     gofile_link = item_url
                 elif "Direct Server (MGT)" in item_type:
-                    direct_mgt_link = item_url  # ADDED: Extract from API response
+                    direct_mgt_link = item_url
 
-            # If the underlying googleUrl parameter is still processing, pause and re-poll
+            # If the async task on Vercel is still tracking redirects, wait 2.5s and re-poll
             if (not google_link or "instant.busycdn" in str(google_link)) and attempt < 2:
                 time.sleep(2.5)
                 continue
@@ -86,7 +89,7 @@ def fetch_from_api(gd_url):
                 "zfile": format_href(zfile_link),
                 "pixeldrain": format_href(pixeldrain_link),
                 "telegram": format_href(telegram_link),
-                "direct_mgt": format_href(direct_mgt_link),  # ADDED: Return to formatter
+                "direct_mgt": format_href(direct_mgt_link),
                 "final_url": gd_url
             }
         except Exception as e:
@@ -112,18 +115,16 @@ def scrape_gdflix(url):
 
     google = scan(text, r"https://video-downloads\.googleusercontent\.com/[^\"]+")
     pix = scan(text, r"https://pixeldrain\.dev/[^\"]+")
-    tg = scan(text, r"https://t\.me/gdflix[^\"]+")
-    mgt = scan(text, r"https://[A-Za-z0-9\.\-]+\.indexserver\.xyz/[^\"]+")  # ADDED: Fallback regex parser
+    tg = scan(text, r"https://t\.me/[^\s\"'<>]+")
+    mgt = scan(text, r"https://[A-Za-z0-9\.\-]+\.indexserver\.xyz/[^\"]+")
 
     cloud_raw = scan(text, r"https://fastcdn-dl\.pages\.dev/\?url=[^\"]+")
     cloud = urllib.parse.unquote(cloud_raw.split("url=")[-1]) if cloud_raw else None
 
     zfile = scan(text, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
 
-    gf = None
-    multiup = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+") or scan(text, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
-    if multiup:
-        gf = multiup
+    # Support fallback matching for both old and new GoFile mirror configurations
+    gf = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+") or scan(text, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
 
     return {
         "title": title,
@@ -134,7 +135,7 @@ def scrape_gdflix(url):
         "zfile": format_href(zfile),
         "pixeldrain": format_href(pix),
         "telegram": format_href(tg),
-        "direct_mgt": format_href(mgt),  # ADDED: Fallback array entry
+        "direct_mgt": format_href(mgt),
         "final_url": final_url
     }
 
@@ -159,7 +160,7 @@ def format_bypass_message(d, message, elapsed):
         f"┃\n"
         f"┠ 📥 **Telegram File :-** {d['telegram']}\n"
         f"┃\n"
-        f"┖ 🚀 **Direct Server [MGT] :-** {d['direct_mgt']}\n\n"  # ADDED: Line added dynamically to display layout card
+        f"┖ 🚀 **Direct Server [MGT] :-** {d['direct_mgt']}\n\n"
         f"⏱️ **Bypassed in {elapsed} sec**\n"
         f"<b>Requested By :</b> {message.from_user.mention}"
     )
@@ -185,10 +186,10 @@ async def gdflix_handler(client: Client, message: Message):
         msg = await message.reply("⏳ Processing extraction arrays...")
         start = time.time()
 
-        # 🔥 API FIRST
+        # 🔥 Try API Extraction Sequence First
         data = fetch_from_api(url)
 
-        # ♻️ FALLBACK TO LOCAL SCRAPER
+        # ♻️ Local Parser Fallback
         if not data:
             data = scrape_gdflix(url)
 
