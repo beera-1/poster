@@ -82,8 +82,8 @@ def fetch_from_api(gd_url):
                 elif "Direct Server (MGT)" in item_type:
                     direct_mgt_link = item_url
 
-            # IF THE LINK IS MISSING OR STILL BUSYCDN: Pause and poll again to catch the Google Link
-            if (not google_link or "instant.busycdn" in str(google_link)) and attempt < 2:
+            # FIXED: If the google_link is missing OR it is still just the busycdn URL, force a wait loop
+            if (not google_link or "busycdn" in str(google_link)) and attempt < 2:
                 print(f"[Attempt {attempt + 1}] Deep redirect tracking in progress. Retrying in 3.0s...")
                 time.sleep(3.0)
                 continue
