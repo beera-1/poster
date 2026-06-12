@@ -10,7 +10,6 @@ import time
 OFFICIAL_GROUPS = ["-1002311378229"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# Synchronized with your updated Vercel backend deployment instance
 GD_API = "https://hub-xi-hazel.vercel.app/api/bypaas/gdflix.php?url="
 
 # ========================= HELPERS =========================
@@ -31,16 +30,14 @@ def fetch_html(url):
     except:
         return "", url
 
-# ========================= API FETCH (WITH STRICT ADAPTIVE POLLING) =========================
+# ========================= API FETCH (WITH RETRY POLLING) =========================
 
 def fetch_from_api(gd_url):
-    # Triggers up to 3 retry loops to let async Vercel redirect tracers catch the google link
     for attempt in range(3):
         try:
             r = requests.get(GD_API + gd_url)
             j = r.json()
             
-            # Reads the true/false success state from your Vercel JSON response
             if not j.get("success"):
                 return None
 
@@ -54,20 +51,16 @@ def fetch_from_api(gd_url):
             pixeldrain_link = None
             telegram_link = None
             direct_mgt_link = None
+            gd_index_links = []  # Array to store multiple extracted index mirrors
 
-            # Process layout mirrors from the JSON response list array
             for item in downloads:
                 item_type = item.get("type")
                 item_url = item.get("url")
 
                 if item_type == "Instant DL":
-                    # STRICT ASSIGNMENT: Look exclusively for the deep traced googleUrl
                     google_link = item.get("googleUrl")
-                    
-                    # Final emergency assignment if we run entirely out of backend execution retries
                     if not google_link and attempt == 2:
                         google_link = item_url
-                        
                 elif item_type == "Cloud Download (R2)":
                     cloud_link = item_url
                 elif item_type == "Fast Cloud / Zipdisk":
@@ -81,12 +74,17 @@ def fetch_from_api(gd_url):
                     gofile_link = item_url
                 elif "Direct Server (MGT)" in item_type:
                     direct_mgt_link = item_url
+                elif item_type == "GD Index Link":
+                    gd_index_links.append(item_url)  # Appends links found inside /wfile/
 
-            # FIXED: If the google_link is missing OR it is still just the busycdn URL, force a wait loop
-            if (not google_link or "busycdn" in str(google_link)) and attempt < 2:
-                print(f"[Attempt {attempt + 1}] Deep redirect tracking in progress. Retrying in 3.0s...")
+            if (not google_link or "instant.busycdn" in str(google_link)) and attempt < 2:
                 time.sleep(3.0)
                 continue
+
+            # Format multiple index items elegantly
+            index_str = "❌ Not Found"
+            if gd_index_links:
+                index_str = " | ".join([f'<a href="{url}">Mirror {i+1}</a>' for i, url in enumerate(gd_index_links)])
 
             return {
                 "title": d.get("fileName", "Unknown File"),
@@ -98,6 +96,7 @@ def fetch_from_api(gd_url):
                 "pixeldrain": format_href(pixeldrain_link),
                 "telegram": format_href(telegram_link),
                 "direct_mgt": format_href(direct_mgt_link),
+                "gd_index": index_str,
                 "final_url": gd_url
             }
         except Exception as e:
@@ -130,8 +129,6 @@ def scrape_gdflix(url):
     cloud = urllib.parse.unquote(cloud_raw.split("url=")[-1]) if cloud_raw else None
 
     zfile = scan(text, r"https://[A-Za-z0-9\.\-]+\.workers\.dev/[^\"]+")
-
-    # Universal alignment mapping for fallback multiup/goflix string routing targets
     gf = scan(text, r"https://validate\.multiup2\.workers\.dev/[A-Za-z0-9]+") or scan(text, r"https://goflix\.sbs/en/mirror/[A-Za-z0-9]+")
 
     return {
@@ -144,6 +141,7 @@ def scrape_gdflix(url):
         "pixeldrain": format_href(pix),
         "telegram": format_href(tg),
         "direct_mgt": format_href(mgt),
+        "gd_index": "❌ Not Found",
         "final_url": final_url
     }
 
@@ -168,7 +166,9 @@ def format_bypass_message(d, message, elapsed):
         f"┃\n"
         f"┠ 📥 **Telegram File :-** {d['telegram']}\n"
         f"┃\n"
-        f"┖ 🚀 **Direct Server [MGT] :-** {d['direct_mgt']}\n\n"
+        f"┠ 🚀 **Direct Server [MGT] :-** {d['direct_mgt']}\n"
+        f"┃\n"
+        f"┖ 🌐 **GD Index Links :-** {d['gd_index']}\n\n"
         f"⏱️ **Bypassed in {elapsed} sec**\n"
         f"<b>Requested By :</b> {message.from_user.mention}"
     )
@@ -194,10 +194,8 @@ async def gdflix_handler(client: Client, message: Message):
         msg = await message.reply("⏳ Processing extraction arrays...")
         start = time.time()
 
-        # 🔥 Run API Parsing Flow 
         data = fetch_from_api(url)
 
-        # ♻️ Local RegEx Fallback Parsing
         if not data:
             data = scrape_gdflix(url)
 
@@ -206,6 +204,5 @@ async def gdflix_handler(client: Client, message: Message):
             disable_web_page_preview=True
         )
         
-        # Spacing pause prevents crushing serverless runtimes sequentially
         if len(links) > 1:
             time.sleep(3.0)
